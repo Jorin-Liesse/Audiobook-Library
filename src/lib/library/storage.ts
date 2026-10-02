@@ -1,3 +1,10 @@
+import type { LibraryDirectory } from '#lib/types/library.ts';
+
+export interface SavedLibrary {
+  name: string;
+  files: { file: File; path: string }[];
+}
+
 export const store = {
   get<T>(key: string, fallback: T): T {
     try {
@@ -71,3 +78,39 @@ export const idb = {
     return transaction<undefined>(name, 'readwrite', (store) => store.delete(key));
   }
 };
+
+// Commit the folder and its local copy together so switching libraries cannot
+// leave a remembered folder pointing at another library's files.
+export async function saveLibrary(handle: LibraryDirectory | null, library: SavedLibrary | null) {
+  try {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const kv = tx.objectStore('kv');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+      try {
+        if (handle) kv.put(handle, 'root');
+        else kv.delete('root');
+        if (library) kv.put(library, 'library');
+        else kv.delete('library');
+      } catch (failure) {
+        // A synchronous clone error must also roll back preceding writes.
+        tx.abort();
+        reject(failure);
+      }
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function restoreLibraryFiles(library: SavedLibrary) {
+  return library.files.map(({ file, path }) => {
+    // Custom File properties are not preserved by IndexedDB's structured clone.
+    Object.defineProperty(file, 'webkitRelativePath', { value: path, configurable: true });
+    return file;
+  });
+}

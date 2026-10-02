@@ -9,6 +9,16 @@ export const sortKey = (title: string) => title.replace(/^(the|a|an)\s+/i, '');
 const pathOf = (file: File) => file.webkitRelativePath || file.name;
 const dirOf = (file: File) => pathOf(file).split('/').slice(0, -1).join('/');
 
+export function libraryFiles(allFiles: File[]) {
+  return allFiles.filter(
+    (file) =>
+      (file.type.startsWith('audio/') || AUDIO_RE.test(file.name) || IMAGE_RE.test(file.name)) &&
+      !pathOf(file)
+        .split('/')
+        .some((part) => part.startsWith('.'))
+  );
+}
+
 function hue(title: string) {
   let value = 0;
   for (const character of title) value = (value * 31 + character.charCodeAt(0)) % 360;
@@ -17,12 +27,7 @@ function hue(title: string) {
 
 // Match the grouping rules of the supplied standalone HTML.
 export function buildLibrary(allFiles: File[]): Book[] {
-  const files = allFiles.filter(
-    (file) =>
-      !pathOf(file)
-        .split('/')
-        .some((part) => part.startsWith('.'))
-  );
+  const files = libraryFiles(allFiles);
   const audio = files.filter((file) => file.type.startsWith('audio/') || AUDIO_RE.test(file.name));
   const images = new Map<string, File[]>();
   for (const file of files.filter((file) => IMAGE_RE.test(file.name))) {

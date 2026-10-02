@@ -13,6 +13,7 @@
   <meta name="text-scale" content="scale" />
   <meta name="theme-color" content="#e8ece4" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#151c1a" media="(prefers-color-scheme: dark)" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Audiobooks" />

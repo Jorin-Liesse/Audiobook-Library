@@ -7,16 +7,12 @@
     view = $bindable('series'),
     filter = $bindable('all'),
     onchoose,
-    onforget,
-    remembered = false,
     busy = false
   }: {
     query?: string;
     view?: LibraryView;
     filter?: LibraryFilter;
     onchoose: () => void;
-    onforget: () => void;
-    remembered?: boolean;
     busy?: boolean;
   } = $props();
   let menuOpen = $state(false);
@@ -58,11 +54,13 @@
 {/snippet}
 
 {#snippet filterSelect()}
-  <select bind:value={filter} aria-label="Show books">
-    <option value="all">All</option><option value="liked">Liked</option>
-    <option value="progress">In progress</option><option value="new">Not started</option>
-    <option value="read">Read</option>
-  </select>
+  <div class="filter-select">
+    <select bind:value={filter} aria-label="Show books">
+      <option value="all">All</option><option value="liked">Liked</option>
+      <option value="progress">In progress</option><option value="new">Not started</option>
+      <option value="read">Read</option>
+    </select>
+  </div>
 {/snippet}
 
 <header class="toolbar">
@@ -90,7 +88,7 @@
       {#if menuOpen}
         <div class="menu" id="library-options">
           <div class="mobile">{@render layoutTabs()}</div>
-          <div class="mobile filter-row"><span>Show</span>{@render filterSelect()}</div>
+          <div class="mobile filter-row">{@render filterSelect()}</div>
           <button
             class="menu-item"
             disabled={busy}
@@ -99,14 +97,6 @@
               onchoose();
             }}><span>Choose folder</span><Icon name="folder" size={18} /></button
           >
-          {#if remembered}<button
-              class="menu-item"
-              onclick={() => {
-                onforget();
-                menuOpen = false;
-              }}
-              title="Stop remembering this folder in this browser">Forget folder</button
-            >{/if}
         </div>
       {/if}
     </div>
@@ -179,12 +169,32 @@
   .tabs button:focus-visible {
     outline-offset: -3px;
   }
+  .filter-select {
+    position: relative;
+  }
+  .filter-select::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    width: 8px;
+    height: 8px;
+    border-right: 1.8px solid currentColor;
+    border-bottom: 1.8px solid currentColor;
+    transform: translateY(-75%) rotate(45deg);
+    transition: transform 180ms ease;
+    pointer-events: none;
+  }
+  .filter-select:has(select:open)::after {
+    transform: translateY(-75%) rotate(135deg);
+  }
   select {
+    appearance: none;
     height: 42px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--surface);
-    padding: 0 10px;
+    padding: 0 36px 0 12px;
   }
   .menu-wrap {
     position: relative;
@@ -230,6 +240,10 @@
   .mobile {
     display: none;
   }
+  .filter-row .filter-select,
+  .filter-row select {
+    width: 100%;
+  }
   @media (max-width: 640px) {
     .toolbar {
       padding: 8px var(--gutter);
@@ -248,10 +262,7 @@
       flex: 1;
     }
     .filter-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
+      padding: 8px 0;
     }
     .filtered::after {
       content: '';

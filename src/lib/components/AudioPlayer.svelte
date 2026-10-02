@@ -26,7 +26,9 @@
   let error = $state('');
   let active: { book: Book; command: Playback; url: string; ready: boolean } | null = null;
   let lastSave = 0;
-  const fraction = $derived(duration > 0 ? (position / duration) * 100 : 0);
+  const fraction = $derived(
+    duration > 0 ? Math.max(0, Math.min(100, (position / duration) * 100)) : 0
+  );
   const chapter = $derived(
     book.files.length > 1
       ? `Chapter ${playback.index + 1} of ${book.files.length} · ${tidy(stripExt(book.files[playback.index].name))}`
@@ -128,7 +130,7 @@
 
   function seek(event: Event) {
     if (!audio || !active?.ready) return;
-    audio.currentTime = Number((event.currentTarget as HTMLInputElement).value);
+    audio.currentTime = (Number((event.currentTarget as HTMLInputElement).value) / 100) * duration;
     position = audio.currentTime;
     flush();
   }
@@ -183,14 +185,14 @@
         <input
           type="range"
           min="0"
-          max={duration || 1}
-          step="0.1"
-          value={position}
+          max="100"
+          step="any"
+          value={fraction}
           disabled={duration <= 0}
           oninput={seek}
           aria-label="Playback position"
           aria-valuetext={`${timeLabel(position)} of ${timeLabel(duration)}`}
-          style:--position={`${fraction}%`}
+          style:--progress={fraction / 100}
         />
         <span class="position" title="Elapsed time / total file duration"
           >{timeLabel(position)} / {timeLabel(duration)}</span
@@ -307,6 +309,8 @@
     color: var(--ink);
   }
   input {
+    /* The thumb's center travels between 5px and the track width minus 5px. */
+    --position: calc(5px + (100% - 10px) * var(--progress));
     appearance: none;
     height: 4px;
     border-radius: 4px;
