@@ -19,6 +19,8 @@
   line-height: 1.5;
   color-scheme: light;
   overflow-y: scroll;
+  /* Prevent downward swipes at the top from reloading the app. */
+  overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
 }
 

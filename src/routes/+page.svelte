@@ -439,17 +439,6 @@
   />
   <main>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if accessNeeded && books.length}
-      <p class="access-note">
-        {#if savedHandle}
-          Your library is ready. Tap a book to allow access to its audio. If Chrome offers “Allow on
-          every visit”, choose it to reopen automatically.
-        {:else}
-          Your library is remembered. This browser needs the folder selected again to play audio.
-          <button onclick={chooseFolder} disabled={loading}>Choose folder</button>
-        {/if}
-      </p>
-    {/if}
     {#if loading && !books.length}
       <LibraryEmptyState
         title="Scanning your library…"
