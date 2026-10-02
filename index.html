@@ -728,10 +728,33 @@ render();
   const handle = await idb.get('kv', 'root');
   if (!handle) return;
   savedHandle = handle;
+
+  // Ask the browser not to evict our saved folder handle under storage pressure
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
   try {
-    if (await handle.queryPermission({ mode: 'read' }) === 'granted') openHandle(handle, false);
-    else render();   // shows the "Reopen library" button
-  } catch (e) { render(); }
+    if (await handle.queryPermission({ mode: 'read' }) === 'granted') {
+      openHandle(handle, false);          // permission already remembered: fully automatic
+      return;
+    }
+  } catch (e) {}
+
+  render();   // shows the "Reopen library" button as a fallback
+
+  // Permission requests need a user gesture, so use the first click, tap or key press
+  // anywhere on the page. Choosing "Allow on every visit" in Chrome's prompt
+  // makes later visits fully automatic.
+  const askOnce = async () => {
+    document.removeEventListener('pointerdown', askOnce, true);
+    document.removeEventListener('keydown', askOnce, true);
+    try {
+      if (!library.length && await handle.requestPermission({ mode: 'read' }) === 'granted') {
+        openHandle(handle, false);
+      }
+    } catch (e) {}
+  };
+  document.addEventListener('pointerdown', askOnce, true);
+  document.addEventListener('keydown', askOnce, true);
 })();
 </script>
 </body>
