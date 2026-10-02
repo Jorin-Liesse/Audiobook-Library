@@ -7,22 +7,9 @@
   import LibraryToolbar from '#lib/components/LibraryToolbar.svelte';
   import LibraryEmptyState from '#lib/components/LibraryEmptyState.svelte';
   import AudioPlayer from '#lib/components/AudioPlayer.svelte';
-  import {
-    buildLibrary,
-    collator,
-    folderContents,
-    libraryFiles,
-    sortKey,
-    walk
-  } from '#lib/library/files.ts';
+  import { buildLibrary, collator, folderContents, sortKey, walk } from '#lib/library/files.ts';
   import { COVER_CONTEXT, CoverLoader, type LoadCover } from '#lib/library/covers.ts';
-  import {
-    idb,
-    restoreLibraryFiles,
-    saveLibrary,
-    store,
-    type SavedLibrary
-  } from '#lib/library/storage.ts';
+  import { idb, store } from '#lib/library/storage.ts';
   import type {
     Book,
     BookProgress,
@@ -51,7 +38,6 @@
   let coverLoader = new CoverLoader();
   let scanToken = 0;
   let playbackToken = 0;
-  let saving = Promise.resolve();
 
   setContext<LoadCover>(COVER_CONTEXT, async (book) => {
     const loader = coverLoader;
@@ -215,40 +201,22 @@
     }
   }
 
-  async function rememberLibrary(files: File[], name: string, handle: LibraryDirectory | null) {
-    const library: SavedLibrary = {
-      name,
-      files: files.map((file) => ({ file, path: file.webkitRelativePath || file.name }))
-    };
-    // Serialize imports, including quota-error cleanup, so an older save cannot
-    // overwrite a folder chosen while it was still copying files.
-    const token = scanToken;
-    const pending = saving.then(async () => {
-      if (token !== scanToken) return;
-      if (!(await saveLibrary(handle, library))) {
-        await saveLibrary(handle, null);
-        if (token === scanToken)
-          error =
-            'Your library is open, but it could not be saved for next time. Browser storage may be full or unavailable; you may need to reopen the folder next time.';
-      }
-    });
-    saving = pending;
-    await pending;
-    // Persistence helps protect the saved files from automatic storage eviction.
-    void navigator.storage?.persist?.().catch(() => {});
-  }
-
-  async function openHandle(handle: LibraryDirectory) {
+  async function openHandle(handle: LibraryDirectory, remember: boolean) {
     const token = ++scanToken;
     loading = true;
     error = '';
     try {
       const files = await walk(handle);
       if (token !== scanToken) return;
+
+      if (remember) {
+        await idb.set('kv', 'root', handle);
+        if (token !== scanToken) return;
+        savedHandle = handle;
+      }
+
       loadFiles(files);
       libraryName = handle.name;
-      savedHandle = handle;
-      await rememberLibrary(files, handle.name, handle);
     } catch {
       if (token === scanToken)
         error =
@@ -272,7 +240,7 @@
     }
     try {
       const handle = await picker.call(window, { mode: 'read' });
-      await openHandle(handle);
+      await openHandle(handle, true);
     } catch (failure) {
       if (!(failure instanceof DOMException && failure.name === 'AbortError'))
         error = 'The folder picker could not open. Please try again.';
@@ -280,17 +248,16 @@
   }
 
   async function loadPickedFiles(event: Event) {
-    const selected = Array.from((event.currentTarget as HTMLInputElement).files ?? []);
-    if (!selected.length) return;
-    const token = ++scanToken;
-    const files = libraryFiles(selected);
-    loading = true;
+    const files = Array.from((event.currentTarget as HTMLInputElement).files ?? []);
+    if (!files.length) return;
+    ++scanToken;
+    loading = false;
+
     error = '';
     loadFiles(files);
-    libraryName = selected[0].webkitRelativePath.split('/')[0] || 'Library';
     savedHandle = null;
-    await rememberLibrary(files, libraryName, null);
-    if (token === scanToken) loading = false;
+
+    await idb.del('kv', 'root');
   }
 
   async function reopenFolder() {
@@ -298,7 +265,7 @@
     error = '';
     try {
       if ((await savedHandle.requestPermission({ mode: 'read' })) === 'granted')
-        await openHandle(savedHandle);
+        await openHandle(savedHandle, false);
       else error = 'Folder access was not granted. Reopen the library or choose another folder.';
     } catch {
       error = 'The remembered folder is unavailable. Please choose the folder again.';
@@ -322,29 +289,20 @@
     read = store.get('read', {});
     ready = true;
     const token = scanToken;
-    loading = true;
     void (async () => {
+      const handle = await idb.get<LibraryDirectory>('kv', 'root');
+      if (!handle || token !== scanToken || !('showDirectoryPicker' in window)) return;
+      savedHandle = handle;
       try {
-        const [handle, library] = await Promise.all([
-          idb.get<LibraryDirectory>('kv', 'root'),
-          idb.get<SavedLibrary>('kv', 'library')
-        ]);
-        if (token !== scanToken) return;
-        savedHandle = handle ?? null;
-        if (library) {
-          loadFiles(restoreLibraryFiles(library));
-          libraryName = library.name;
-          return;
-        }
-        // Migrate existing remembered folders when permission is still available.
-        // Requesting fresh permission must remain attached to a user gesture.
-        if (handle && (await handle.queryPermission({ mode: 'read' })) === 'granted') {
-          if (token === scanToken) await openHandle(handle);
-        }
+        await navigator.storage?.persist?.();
+        if (
+          token === scanToken &&
+          (await handle.queryPermission({ mode: 'read' })) === 'granted' &&
+          token === scanToken
+        )
+          await openHandle(handle, false);
       } catch {
         /* The reopen button is a fallback when no local copy is available. */
-      } finally {
-        if (token === scanToken) loading = false;
       }
     })();
     return () => {
@@ -374,8 +332,8 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if loading}
       <LibraryEmptyState
-        title="Opening your library…"
-        message="Loading your audiobooks and saving them for next time."
+       title="Scanning your library…"
+        message="Finding audiobooks in your folder and its subfolders."
       />
     {:else if books.length === 0}
       {#if savedHandle && !libraryName}

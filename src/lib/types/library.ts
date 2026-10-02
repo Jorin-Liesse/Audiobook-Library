@@ -1,6 +1,17 @@
 export type LibraryView = 'series' | 'folders' | 'az';
 export type LibraryFilter = 'all' | 'liked' | 'progress' | 'new' | 'read';
 
+export interface StoredFile {
+  storageKey: string;
+  name: string;
+  type: string;
+  size: number;
+  lastModified: number;
+  webkitRelativePath: string;
+}
+
+export type LibraryFile = File | StoredFile;
+
 export interface Book {
   id: string;
   key: string;
@@ -8,9 +19,9 @@ export interface Book {
   author: string;
   series?: string;
   treePath: string[];
-  files: File[];
-  image: File | null;
-  parentImage: File | null;
+  files: LibraryFile[];
+  image: LibraryFile | null;
+  parentImage: LibraryFile | null;
   coverUrl?: string | null;
   chapters: number;
   progress: number;

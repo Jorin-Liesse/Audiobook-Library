@@ -1,8 +1,61 @@
-import type { LibraryDirectory } from '#lib/types/library.ts';
+import type { Book, LibraryDirectory, LibraryFile, StoredFile } from '#lib/types/library.ts';
+import { buildLibrary } from './files.ts';
 
 export interface SavedLibrary {
   name: string;
   files: { file: File; path: string }[];
+}
+
+export interface LibraryIndex {
+  version: 1;
+  name: string;
+  fileKeys: string[];
+  books: Book[];
+}
+
+export function createLibraryIndex(library: SavedLibrary, books: Book[], generation: string) {
+  const files = new Map<string, File>();
+  const references = new Map<File, StoredFile>();
+  library.files.forEach(({ file, path }, index) => {
+    const storageKey = `library-file:${generation}:${index}`;
+    files.set(storageKey, file);
+    references.set(file, {
+      storageKey,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: file.lastModified,
+      webkitRelativePath: path
+    });
+  });
+  const reference = (file: LibraryFile): StoredFile => {
+    if (!(file instanceof File) || !references.has(file))
+      throw new Error('An imported file is missing from the library');
+    return references.get(file)!;
+  };
+  const catalog: LibraryIndex = {
+    version: 1,
+    name: library.name,
+    fileKeys: [...files.keys()],
+    books: books.map((book) => ({
+      id: book.id,
+      key: book.key,
+      title: book.title,
+      author: book.author,
+      series: book.series,
+      treePath: [...book.treePath],
+      files: book.files.map(reference),
+      image: book.image ? reference(book.image) : null,
+      parentImage: book.parentImage ? reference(book.parentImage) : null,
+      chapters: book.chapters,
+      cover: { ...book.cover },
+      progress: 0,
+      started: false,
+      liked: false,
+      read: false
+    }))
+  };
+  return { catalog, files };
 }
 
 export const store = {
@@ -79,10 +132,21 @@ export const idb = {
   }
 };
 
-// Commit the folder and its local copy together so switching libraries cannot
-// leave a remembered folder pointing at another library's files.
-export async function saveLibrary(handle: LibraryDirectory | null, library: SavedLibrary | null) {
+// Replace the catalog, folder, and file records atomically in the existing store.
+// Keeping the database version avoids blocking startup on another open PWA tab.
+export async function saveLibrary(
+  handle: LibraryDirectory | null,
+  library: SavedLibrary | null,
+  books?: Book[]
+) {
   try {
+    const prepared = library
+      ? createLibraryIndex(
+          library,
+          books ?? buildLibrary(restoreLibraryFiles(library)),
+          crypto.randomUUID()
+        )
+      : null;
     const db = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('kv', 'readwrite');
@@ -90,16 +154,23 @@ export async function saveLibrary(handle: LibraryDirectory | null, library: Save
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
-      try {
-        if (handle) kv.put(handle, 'root');
-        else kv.delete('root');
-        if (library) kv.put(library, 'library');
-        else kv.delete('library');
-      } catch (failure) {
-        // A synchronous clone error must also roll back preceding writes.
-        tx.abort();
-        reject(failure);
-      }
+      const previous = kv.get('library-index');
+      previous.onsuccess = () => {
+        try {
+          const old = previous.result as LibraryIndex | undefined;
+          for (const key of old?.fileKeys ?? []) kv.delete(key);
+          if (handle) kv.put(handle, 'root');
+          else kv.delete('root');
+          if (prepared) {
+            for (const [key, file] of prepared.files) kv.put(file, key);
+            kv.put(prepared.catalog, 'library-index');
+          } else kv.delete('library-index');
+          kv.delete('library');
+        } catch (failure) {
+          tx.abort();
+          reject(failure);
+        }
+      };
     });
     return true;
   } catch {
@@ -107,9 +178,29 @@ export async function saveLibrary(handle: LibraryDirectory | null, library: Save
   }
 }
 
+export async function readSavedLibrary() {
+  const [handle, catalog] = await Promise.all([
+    idb.get<LibraryDirectory>('kv', 'root'),
+    idb.get<LibraryIndex>('kv', 'library-index')
+  ]);
+  // Read the old whole-library copy only for a one-time migration.
+  const legacy = catalog?.version === 1 ? undefined : await idb.get<SavedLibrary>('kv', 'library');
+  return { handle, catalog: catalog?.version === 1 ? catalog : undefined, legacy };
+}
+
+export async function loadLibraryFile(file: LibraryFile): Promise<File> {
+  if (file instanceof File) return file;
+  const saved = await idb.get<File>('kv', file.storageKey);
+  if (!(saved instanceof File)) throw new Error('The saved audio file is unavailable');
+  Object.defineProperty(saved, 'webkitRelativePath', {
+    value: file.webkitRelativePath,
+    configurable: true
+  });
+  return saved;
+}
+
 export function restoreLibraryFiles(library: SavedLibrary) {
   return library.files.map(({ file, path }) => {
-    // Custom File properties are not preserved by IndexedDB's structured clone.
     Object.defineProperty(file, 'webkitRelativePath', { value: path, configurable: true });
     return file;
   });

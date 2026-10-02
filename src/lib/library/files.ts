@@ -27,19 +27,30 @@ function hue(title: string) {
 
 // Match the grouping rules of the supplied standalone HTML.
 export function buildLibrary(allFiles: File[]): Book[] {
-  const files = libraryFiles(allFiles);
+  const files = allFiles.filter(
+    (file) =>
+      !pathOf(file)
+        .split('/')
+        .some((part) => part.startsWith('.'))
+  );
   const audio = files.filter((file) => file.type.startsWith('audio/') || AUDIO_RE.test(file.name));
+  const append = (groups: Map<string, File[]>, key: string, file: File) => {
+    const group = groups.get(key);
+    if (group) group.push(file);
+    else groups.set(key, [file]);
+  };
   const images = new Map<string, File[]>();
   for (const file of files.filter((file) => IMAGE_RE.test(file.name))) {
     const directory = dirOf(file);
-    images.set(directory, [...(images.get(directory) ?? []), file]);
+    append(images, directory, file);
   }
   const directories = new Map<string, File[]>();
   for (const file of audio) {
     const directory = dirOf(file);
-    directories.set(directory, [...(directories.get(directory) ?? []), file]);
+    append(directories, directory, file);
   }
   const books: Book[] = [];
+  const keys = new Set<string>();
   const pickImage = (list: File[], stem?: string) =>
     (stem && list.find((file) => stripExt(file.name).toLowerCase() === stem.toLowerCase())) ||
     list.find((file) => /cover|folder|front|art/i.test(file.name)) ||
@@ -53,9 +64,8 @@ export function buildLibrary(allFiles: File[]): Book[] {
     parentImage: File | null
   ) => {
     const baseKey = treePath.join('/') + '/' + tidy(title);
-    const key = books.some((book) => book.key === baseKey)
-      ? baseKey + '/' + files[0].name
-      : baseKey;
+    const key = keys.has(baseKey) ? baseKey + '/' + files[0].name : baseKey;
+    keys.add(key);
     const colorHue = hue(title);
     const motifs = ['orbit', 'mountain', 'arch', 'waves'] as const;
     books.push({
@@ -80,7 +90,8 @@ export function buildLibrary(allFiles: File[]): Book[] {
     const parts = directory ? directory.split('/') : [];
     const name = parts.at(-1) || 'Library';
     const singles = files.filter((file) => /\.m4b$/i.test(file.name) || files.length === 1);
-    const chapters = files.filter((file) => !singles.includes(file));
+    const singleFiles = new Set(singles);
+    const chapters = files.filter((file) => !singleFiles.has(file));
     const inDirectory = images.get(directory) ?? [];
     const parentImages = parts.length > 1 ? (images.get(parts.slice(0, -1).join('/')) ?? []) : [];
     if (chapters.length)
