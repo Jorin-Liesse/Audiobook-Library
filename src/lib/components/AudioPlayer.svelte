@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
   import { stripExt, tidy } from '#lib/library/files.ts';
+  import { loadLibraryFile } from '#lib/library/storage.ts';
   import BookCover from './BookCover.svelte';
   import Icon from './Icon.svelte';
 
@@ -10,7 +11,8 @@
     onprogress,
     onchapter,
     onfinish,
-    onclose
+    onclose,
+    onaccess
   }: {
     book: Book;
     playback: Playback;
@@ -18,6 +20,7 @@
     onchapter: (index: number) => void;
     onfinish: (book: Book) => void;
     onclose: () => void;
+    onaccess: () => Promise<boolean>;
   } = $props();
   let audio = $state<HTMLAudioElement>();
   let playing = $state(false);
@@ -26,6 +29,7 @@
   let error = $state('');
   let active: { book: Book; command: Playback; url: string; ready: boolean } | null = null;
   let lastSave = 0;
+  let prepareSource: (() => Promise<void>) | null = null;
   const fraction = $derived(
     duration > 0 ? Math.max(0, Math.min(100, (position / duration) * 100)) : 0
   );
@@ -67,13 +71,23 @@
 
   async function resume() {
     if (!audio) return;
+    const prepare = prepareSource;
+    if (!prepare) return;
+    let sourceLoaded = false;
     try {
+      if (!(await onaccess())) return;
+      if (prepare !== prepareSource) return;
+      await prepare();
+      if (prepare !== prepareSource) return;
+      sourceLoaded = true;
       await audio.play();
       error = '';
     } catch (failure) {
+      if (prepare !== prepareSource) return;
       if (failure instanceof DOMException && failure.name === 'AbortError') return;
-      if (failure instanceof DOMException && failure.name === 'NotAllowedError') return;
-      error = 'This audio file cannot be played in this browser.';
+      if (sourceLoaded && failure instanceof DOMException && failure.name === 'NotAllowedError')
+        return;
+      error = 'The audio file could not be opened. Check folder access or refresh your library.';
     }
   }
 
@@ -82,24 +96,45 @@
     const selected = book;
     const element = audio;
     if (!element) return;
-    const url = URL.createObjectURL(selected.files[command.index]);
-    active = { book: selected, command, url, ready: false };
+    const source = selected.files[command.index];
+    let url: string | undefined;
+    let cancelled = false;
+    let pending: Promise<void> | undefined;
     playing = false;
     position = command.startTime;
     duration = 0;
     error = '';
     lastSave = 0;
-    element.src = url;
-    element.playbackRate = 1;
-    element.load();
+    const attach = (file: File) => {
+      if (cancelled) return;
+      url = URL.createObjectURL(file);
+      active = { book: selected, command, url, ready: false };
+      element.src = url;
+      element.playbackRate = 1;
+      element.load();
+    };
+    prepareSource = () => {
+      if (!pending) {
+        pending = loadLibraryFile(source)
+          .then(attach)
+          .catch((failure) => {
+            pending = undefined;
+            throw failure;
+          });
+      }
+      return pending;
+    };
+    // A restored, paused player does not open audio until Play is tapped.
     if (command.autoplay) void resume();
     return () => {
+      cancelled = true;
+      prepareSource = null;
       flush();
       active = null;
       element.pause();
       element.removeAttribute('src');
       element.load();
-      URL.revokeObjectURL(url);
+      if (url) URL.revokeObjectURL(url);
     };
   });
 

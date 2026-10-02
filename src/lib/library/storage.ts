@@ -1,4 +1,4 @@
-import type { Book, LibraryDirectory, LibraryFile, StoredFile } from '#lib/types/library.ts';
+import type { Book, LibraryDirectory, LibraryFile, LinkedFile } from '#lib/types/library.ts';
 import { buildLibrary } from './files.ts';
 
 export interface SavedLibrary {
@@ -7,20 +7,17 @@ export interface SavedLibrary {
 }
 
 export interface LibraryIndex {
-  version: 1;
+  version: 1 | 2;
   name: string;
   fileKeys: string[];
   books: Book[];
 }
 
-export function createLibraryIndex(library: SavedLibrary, books: Book[], generation: string) {
-  const files = new Map<string, File>();
-  const references = new Map<File, StoredFile>();
-  library.files.forEach(({ file, path }, index) => {
-    const storageKey = `library-file:${generation}:${index}`;
-    files.set(storageKey, file);
+export function createLibraryIndex(library: SavedLibrary, books: Book[], hasFolder: boolean) {
+  const references = new Map<File, LinkedFile>();
+  library.files.forEach(({ file, path }) => {
     references.set(file, {
-      storageKey,
+      source: hasFolder ? 'folder' : 'picker',
       name: file.name,
       type: file.type,
       size: file.size,
@@ -28,15 +25,15 @@ export function createLibraryIndex(library: SavedLibrary, books: Book[], generat
       webkitRelativePath: path
     });
   });
-  const reference = (file: LibraryFile): StoredFile => {
+  const reference = (file: LibraryFile): LinkedFile => {
     if (!(file instanceof File) || !references.has(file))
       throw new Error('An imported file is missing from the library');
     return references.get(file)!;
   };
   const catalog: LibraryIndex = {
-    version: 1,
+    version: 2,
     name: library.name,
-    fileKeys: [...files.keys()],
+    fileKeys: [],
     books: books.map((book) => ({
       id: book.id,
       key: book.key,
@@ -55,7 +52,7 @@ export function createLibraryIndex(library: SavedLibrary, books: Book[], generat
       read: false
     }))
   };
-  return { catalog, files };
+  return catalog;
 }
 
 export const store = {
@@ -132,7 +129,7 @@ export const idb = {
   }
 };
 
-// Replace the catalog, folder, and file records atomically in the existing store.
+// Save only metadata and the original folder handle, never audio bytes.
 // Keeping the database version avoids blocking startup on another open PWA tab.
 export async function saveLibrary(
   handle: LibraryDirectory | null,
@@ -144,7 +141,7 @@ export async function saveLibrary(
       ? createLibraryIndex(
           library,
           books ?? buildLibrary(restoreLibraryFiles(library)),
-          crypto.randomUUID()
+          handle !== null
         )
       : null;
     const db = await openDatabase();
@@ -162,8 +159,7 @@ export async function saveLibrary(
           if (handle) kv.put(handle, 'root');
           else kv.delete('root');
           if (prepared) {
-            for (const [key, file] of prepared.files) kv.put(file, key);
-            kv.put(prepared.catalog, 'library-index');
+            kv.put(prepared, 'library-index');
           } else kv.delete('library-index');
           kv.delete('library');
         } catch (failure) {
@@ -184,12 +180,57 @@ export async function readSavedLibrary() {
     idb.get<LibraryIndex>('kv', 'library-index')
   ]);
   // Read the old whole-library copy only for a one-time migration.
-  const legacy = catalog?.version === 1 ? undefined : await idb.get<SavedLibrary>('kv', 'library');
-  return { handle, catalog: catalog?.version === 1 ? catalog : undefined, legacy };
+  const supported = catalog?.version === 1 || catalog?.version === 2;
+  const legacy = supported ? undefined : await idb.get<SavedLibrary>('kv', 'library');
+  return { handle, catalog: supported ? catalog : undefined, legacy };
+}
+
+let root: LibraryDirectory | null = null;
+let pickedFiles = new Map<string, File>();
+let directories = new Map<string, Promise<FileSystemDirectoryHandle>>();
+
+export function connectLibraryFiles(handle: LibraryDirectory | null, files: File[] = []) {
+  root = handle;
+  pickedFiles = new Map(files.map((file) => [file.webkitRelativePath || file.name, file]));
+  directories = new Map();
 }
 
 export async function loadLibraryFile(file: LibraryFile): Promise<File> {
   if (file instanceof File) return file;
+  if ('source' in file) {
+    const picked = pickedFiles.get(file.webkitRelativePath);
+    if (picked) return picked;
+    if (file.source === 'picker' || !root)
+      throw new Error('Choose your library folder again to access the original audio files.');
+    // Resolve only this path, without enumerating the rest of the library.
+    const parts = file.webkitRelativePath.split('/');
+    if (parts.shift() !== root.name || parts.some((part) => !part || part === '..' || part === '.'))
+      throw new Error('The saved file path does not belong to this library.');
+    const name = parts.pop();
+    if (!name) throw new Error('The saved file path is invalid.');
+    let directory: FileSystemDirectoryHandle = root;
+    let path = root.name;
+    for (const part of parts) {
+      path += '/' + part;
+      let pending = directories.get(path);
+      if (!pending) {
+        pending = directory.getDirectoryHandle(part);
+        directories.set(path, pending);
+      }
+      try {
+        directory = await pending;
+      } catch (failure) {
+        directories.delete(path);
+        throw failure;
+      }
+    }
+    const original = await (await directory.getFileHandle(name)).getFile();
+    Object.defineProperty(original, 'webkitRelativePath', {
+      value: file.webkitRelativePath,
+      configurable: true
+    });
+    return original;
+  }
   const saved = await idb.get<File>('kv', file.storageKey);
   if (!(saved instanceof File)) throw new Error('The saved audio file is unavailable');
   Object.defineProperty(saved, 'webkitRelativePath', {

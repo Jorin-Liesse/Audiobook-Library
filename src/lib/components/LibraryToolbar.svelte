@@ -7,12 +7,16 @@
     view = $bindable('series'),
     filter = $bindable('all'),
     onchoose,
+    onrefresh,
+    canRefresh = false,
     busy = false
   }: {
     query?: string;
     view?: LibraryView;
     filter?: LibraryFilter;
     onchoose: () => void;
+    onrefresh: () => void;
+    canRefresh?: boolean;
     busy?: boolean;
   } = $props();
   let menuOpen = $state(false);
@@ -89,6 +93,16 @@
         <div class="menu" id="library-options">
           <div class="mobile">{@render layoutTabs()}</div>
           <div class="mobile filter-row">{@render filterSelect()}</div>
+          {#if canRefresh}
+            <button
+              class="menu-item"
+              disabled={busy}
+              onclick={() => {
+                menuOpen = false;
+                onrefresh();
+              }}><span>{busy ? 'Scanning library…' : 'Refresh library'}</span></button
+            >
+          {/if}
           <button
             class="menu-item"
             disabled={busy}

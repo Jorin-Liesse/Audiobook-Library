@@ -122,16 +122,29 @@ export async function walk(
   prefix = directory.name + '/',
   output: File[] = []
 ) {
+  const pending: { name: string; handle: FileSystemFileHandle }[] = [];
+  const flush = async () => {
+    // Read a bounded batch of metadata concurrently; no audio bytes are copied.
+    const files = await Promise.all(
+      pending.splice(0).map(async ({ name, handle }) => {
+        const file = await handle.getFile();
+        Object.defineProperty(file, 'webkitRelativePath', { value: prefix + name });
+        return file;
+      })
+    );
+    output.push(...files);
+  };
   for await (const [name, handle] of directory.entries()) {
     if (name.startsWith('.')) continue;
     if (handle.kind === 'directory') {
+      await flush();
       await walk(handle, prefix + name + '/', output);
     } else if (AUDIO_RE.test(name) || IMAGE_RE.test(name)) {
-      const file = await handle.getFile();
-      Object.defineProperty(file, 'webkitRelativePath', { value: prefix + name });
-      output.push(file);
+      pending.push({ name, handle });
+      if (pending.length === 8) await flush();
     }
   }
+  await flush();
   return output;
 }
 

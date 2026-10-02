@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildLibrary, libraryFiles } from '#lib/library/files.ts';
+import { buildLibrary, libraryFiles, walk } from '#lib/library/files.ts';
+import { CoverLoader } from '#lib/library/covers.ts';
 import {
   createLibraryIndex,
+  connectLibraryFiles,
   idb,
   loadLibraryFile,
   readSavedLibrary,
@@ -10,7 +12,7 @@ import {
   saveLibrary
 } from '#lib/library/storage.ts';
 import type { LibraryIndex, SavedLibrary } from '#lib/library/storage.ts';
-import type { LibraryDirectory } from '#lib/types/library.ts';
+import type { LibraryDirectory, LinkedFile } from '#lib/types/library.ts';
 
 test('restored files retain book keys, chapter order, covers, and playable bytes', async () => {
   const paths = [
@@ -49,7 +51,7 @@ test('restored files retain book keys, chapter order, covers, and playable bytes
     restored.map((file) => file.webkitRelativePath),
     paths
   );
-  const { catalog, files } = createLibraryIndex(library, after, 'generation');
+  const catalog = createLibraryIndex(library, after, true);
   const savedBook = catalog.books[0];
   assert.equal(savedBook.key, before[0].key);
   assert.deepEqual(
@@ -61,7 +63,9 @@ test('restored files retain book keys, chapter order, covers, and playable bytes
   assert.equal(savedBook.files[0] instanceof Blob, false);
   assert.equal(savedBook.image instanceof Blob, false);
   assert.equal(savedBook.parentImage instanceof Blob, false);
-  assert.equal(files.size, 4);
+  assert.equal(catalog.version, 2);
+  assert.deepEqual(catalog.fileKeys, []);
+  assert.equal((savedBook.files[0] as LinkedFile).source, 'folder');
 });
 
 test('folder imports save audio and artwork without unrelated or hidden files', () => {
@@ -151,8 +155,29 @@ test('library saves commit together and roll back on quota and clone errors', as
     }
   });
   try {
-    const handle = { name: 'Original' } as LibraryDirectory;
     const audio = new File(['playable audio'], 'book.m4b', { type: 'audio/mp4' });
+    let openedFiles = 0;
+    const handle = {
+      name: 'Original',
+      async getFileHandle(name: string) {
+        assert.equal(name, 'book.m4b');
+        return {
+          async getFile() {
+            openedFiles++;
+            return audio;
+          }
+        };
+      },
+      entries() {
+        throw new Error('Must not rescan on launch');
+      },
+      queryPermission() {
+        throw new Error('Storage must not prompt');
+      },
+      requestPermission() {
+        throw new Error('Storage must not prompt');
+      }
+    } as unknown as LibraryDirectory;
     const library: SavedLibrary = {
       name: 'Original',
       files: [{ file: audio, path: 'Original/book.m4b' }]
@@ -163,6 +188,31 @@ test('library saves commit together and roll back on quota and clone errors', as
     assert.ok(catalog);
     assert.equal(catalog.name, 'Original');
     assert.equal(catalog.books.length, 1);
+    assert.equal(catalog.version, 2);
+    assert.deepEqual(catalog.fileKeys, []);
+    assert.deepEqual([...values.keys()].sort(), ['library-index', 'root']);
+    assert.equal(openedFiles, 0);
+    const book = catalog.books[0];
+    const coverKey =
+      book.key +
+      ':' +
+      JSON.stringify(
+        [book.image, ...book.files.slice(0, 2), book.parentImage].map((file) =>
+          file ? [file.webkitRelativePath, file.size, file.lastModified] : null
+        )
+      );
+    // Cached misses and cached artwork must work without access to original audio.
+    values.set(coverKey, { blob: null });
+    const missingCover = new CoverLoader();
+    assert.deepEqual(await missingCover.load(book), { url: null, author: undefined });
+    missingCover.dispose();
+    values.set(coverKey, { blob: new Blob(['artwork']), author: 'Author' });
+    const offlineCover = new CoverLoader(false);
+    const art = await offlineCover.load(book);
+    assert.ok(art.url);
+    assert.equal(art.author, 'Author');
+    assert.equal(openedFiles, 0);
+    offlineCover.dispose();
     assert.equal(catalog.books[0].files[0] instanceof Blob, false);
     const written = writes;
     // Reloading must not read audio, invoke folder permissions/scans, or write a
@@ -177,19 +227,34 @@ test('library saves commit together and roll back on quota and clone errors', as
       assert.equal(writes, written);
     }
     reads.length = 0;
+    connectLibraryFiles(handle);
     const file = await loadLibraryFile(catalog.books[0].files[0]);
     assert.equal(await file.text(), 'playable audio');
     assert.equal(file.webkitRelativePath, 'Original/book.m4b');
-    assert.deepEqual(reads, [catalog.fileKeys[0]]);
+    assert.deepEqual(reads, []);
+    assert.equal(openedFiles, 1);
     values.set('library', library);
+    // Old copied libraries remain readable, then their blobs are removed on reimport.
+    values.set('old-audio', audio);
+    const oldCatalog: LibraryIndex = { ...catalog, version: 1, fileKeys: ['old-audio'] };
+    values.set('library-index', oldCatalog);
+    const oldFile = {
+      storageKey: 'old-audio',
+      name: audio.name,
+      type: audio.type,
+      size: audio.size,
+      lastModified: audio.lastModified,
+      webkitRelativePath: 'Original/book.m4b'
+    };
+    assert.equal(await (await loadLibraryFile(oldFile)).text(), 'playable audio');
 
     for (const cause of ['quota', 'clone'] as const) {
       failure = cause;
       assert.equal(await saveLibrary(null, { name: 'Replacement', files: [] }), false);
       assert.equal(values.get('root'), handle);
       assert.equal(values.get('library'), library);
-      assert.equal(values.get('library-index'), catalog);
-      assert.equal(values.get(catalog.fileKeys[0]), audio);
+      assert.equal(values.get('library-index'), oldCatalog);
+      assert.equal(values.get('old-audio'), audio);
     }
 
     failure = null;
@@ -197,9 +262,9 @@ test('library saves commit together and roll back on quota and clone errors', as
     assert.equal(await saveLibrary(null, replacement), true);
     assert.equal(values.has('root'), false);
     assert.equal(values.has('library'), false);
-    assert.equal(values.has(catalog.fileKeys[0]), false);
+    assert.equal(values.has('old-audio'), false);
     assert.equal((await idb.get<LibraryIndex>('kv', 'library-index'))?.name, replacement.name);
-    await assert.rejects(loadLibraryFile(catalog.books[0].files[0]), /unavailable/);
+    await assert.rejects(loadLibraryFile(oldFile), /unavailable/);
 
     assert.equal(await saveLibrary(handle, null), true);
     assert.equal(await idb.get('kv', 'root'), handle);
@@ -213,4 +278,107 @@ test('library saves commit together and roll back on quota and clone errors', as
     if (previous) Object.defineProperty(globalThis, 'indexedDB', previous);
     else Reflect.deleteProperty(globalThis, 'indexedDB');
   }
+});
+
+test('explicit scans read metadata concurrently with a bounded batch and preserve paths', async () => {
+  let active = 0;
+  let peak = 0;
+  const names = Array.from({ length: 19 }, (_, index) => `${index + 1}.mp3`);
+  const handle = {
+    name: 'Library',
+    async *entries() {
+      for (const name of [...names, '.hidden.mp3', 'notes.txt']) {
+        yield [
+          name,
+          {
+            kind: 'file',
+            async getFile() {
+              active++;
+              peak = Math.max(peak, active);
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              active--;
+              return new File(['audio'], name);
+            }
+          }
+        ];
+      }
+    }
+  } as unknown as FileSystemDirectoryHandle;
+  const files = await walk(handle);
+  assert.equal(peak, 8);
+  assert.equal(active, 0);
+  assert.deepEqual(
+    files.map((file) => file.webkitRelativePath),
+    names.map((name) => 'Library/' + name)
+  );
+});
+
+test('folder references open only requested files and reuse directories without scans or copies', async () => {
+  const opened: string[] = [];
+  let denied = true;
+  const chapter = new File(['chapter bytes'], '01.mp3');
+  const directory = {
+    async getFileHandle(name: string) {
+      opened.push(name);
+      return {
+        async getFile() {
+          return chapter;
+        }
+      };
+    }
+  };
+  const handle = {
+    name: 'Library',
+    async getDirectoryHandle(name: string) {
+      opened.push(name);
+      if (denied) throw new DOMException('Access denied', 'NotAllowedError');
+      return directory;
+    },
+    entries() {
+      throw new Error('Must not enumerate the library');
+    }
+  } as unknown as LibraryDirectory;
+  const reference: LinkedFile = {
+    source: 'folder',
+    name: '01.mp3',
+    type: 'audio/mpeg',
+    size: chapter.size,
+    lastModified: chapter.lastModified,
+    webkitRelativePath: 'Library/Book/01.mp3'
+  };
+  connectLibraryFiles(handle);
+  assert.deepEqual(opened, []);
+  await assert.rejects(loadLibraryFile(reference), { name: 'NotAllowedError' });
+  denied = false;
+  assert.equal(await (await loadLibraryFile(reference)).text(), 'chapter bytes');
+  await loadLibraryFile({
+    ...reference,
+    name: '02.mp3',
+    webkitRelativePath: 'Library/Book/02.mp3'
+  });
+  assert.deepEqual(opened, ['Book', 'Book', '01.mp3', '02.mp3']);
+  await assert.rejects(
+    loadLibraryFile({ ...reference, webkitRelativePath: 'Other/Book/01.mp3' }),
+    /does not belong/
+  );
+  await assert.rejects(
+    loadLibraryFile({ ...reference, webkitRelativePath: 'Library/../01.mp3' }),
+    /does not belong/
+  );
+});
+
+test('file picker catalogues contain no audio copy and require reconnection after restart', async () => {
+  const audio = new File(['original bytes'], 'book.m4b');
+  Object.defineProperty(audio, 'webkitRelativePath', { value: 'Mobile/book.m4b' });
+  const library = { name: 'Mobile', files: [{ file: audio, path: audio.webkitRelativePath }] };
+  const catalog = createLibraryIndex(library, buildLibrary([audio]), false);
+  const reference = catalog.books[0].files[0];
+  assert.equal((reference as LinkedFile).source, 'picker');
+  assert.deepEqual(catalog.fileKeys, []);
+  connectLibraryFiles(null, [audio]);
+  assert.equal(await loadLibraryFile(reference), audio);
+  connectLibraryFiles(null);
+  await assert.rejects(loadLibraryFile(reference), /Choose your library folder again/);
+  connectLibraryFiles(null, [audio]);
+  assert.equal(await (await loadLibraryFile(reference)).text(), 'original bytes');
 });

@@ -10,7 +10,16 @@ export interface StoredFile {
   webkitRelativePath: string;
 }
 
-export type LibraryFile = File | StoredFile;
+export interface LinkedFile {
+  source: 'folder' | 'picker';
+  name: string;
+  type: string;
+  size: number;
+  lastModified: number;
+  webkitRelativePath: string;
+}
+
+export type LibraryFile = File | StoredFile | LinkedFile;
 
 export interface Book {
   id: string;

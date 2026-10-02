@@ -7,9 +7,22 @@
   import LibraryToolbar from '#lib/components/LibraryToolbar.svelte';
   import LibraryEmptyState from '#lib/components/LibraryEmptyState.svelte';
   import AudioPlayer from '#lib/components/AudioPlayer.svelte';
-  import { buildLibrary, collator, folderContents, sortKey, walk } from '#lib/library/files.ts';
+  import {
+    buildLibrary,
+    collator,
+    folderContents,
+    libraryFiles,
+    sortKey,
+    walk
+  } from '#lib/library/files.ts';
   import { COVER_CONTEXT, CoverLoader, type LoadCover } from '#lib/library/covers.ts';
-  import { idb, store } from '#lib/library/storage.ts';
+  import {
+    connectLibraryFiles,
+    readSavedLibrary,
+    restoreLibraryFiles,
+    saveLibrary,
+    store
+  } from '#lib/library/storage.ts';
   import type {
     Book,
     BookProgress,
@@ -25,6 +38,7 @@
   let query = $state('');
   let folderPath = $state<string[]>([]);
   let savedHandle = $state<LibraryDirectory | null>(null);
+  let accessNeeded = $state(false);
   let libraryName = $state('');
   let loading = $state(false);
   let error = $state('');
@@ -134,7 +148,8 @@
     playback = { bookId: book.id, index, startTime, autoplay, token: ++playbackToken };
   }
 
-  function openBook(book: Book) {
+  async function openBook(book: Book) {
+    if (!(await ensureLibraryAccess())) return;
     player?.flush();
     const saved = savedProgress(book);
     startBook(book, saved?.i ?? 0, saved?.t ?? 0);
@@ -179,14 +194,14 @@
     store.set(kind === 'liked' ? 'likes' : 'read', map);
   }
 
-  function loadFiles(files: File[]) {
+  function loadBooks(catalog: Book[], name: string, canRead = true) {
     player?.flush();
     playback = null;
     coverLoader.dispose();
-    coverLoader = new CoverLoader();
-    books = buildLibrary(files).map(hydrate);
+    coverLoader = new CoverLoader(canRead);
+    books = catalog.map(hydrate);
     folderPath = [];
-    libraryName = files[0]?.webkitRelativePath.split('/')[0] ?? '';
+    libraryName = name;
     const last = store.get<string | null>('last', null);
     const book = books.find((item) => item.key === last);
     if (book) {
@@ -201,7 +216,7 @@
     }
   }
 
-  async function openHandle(handle: LibraryDirectory, remember: boolean) {
+  async function openHandle(handle: LibraryDirectory) {
     const token = ++scanToken;
     loading = true;
     error = '';
@@ -209,14 +224,21 @@
       const files = await walk(handle);
       if (token !== scanToken) return;
 
-      if (remember) {
-        await idb.set('kv', 'root', handle);
-        if (token !== scanToken) return;
-        savedHandle = handle;
-      }
-
-      loadFiles(files);
-      libraryName = handle.name;
+      const catalog = buildLibrary(files);
+      const saved = await saveLibrary(
+        handle,
+        {
+          name: handle.name,
+          files: files.map((file) => ({ file, path: file.webkitRelativePath }))
+        },
+        catalog
+      );
+      if (token !== scanToken) return;
+      savedHandle = handle;
+      accessNeeded = false;
+      connectLibraryFiles(handle);
+      loadBooks(catalog, handle.name);
+      if (!saved) error = 'Your library is open, but could not be remembered on this device.';
     } catch {
       if (token === scanToken)
         error =
@@ -240,7 +262,7 @@
     }
     try {
       const handle = await picker.call(window, { mode: 'read' });
-      await openHandle(handle, true);
+      await openHandle(handle);
     } catch (failure) {
       if (!(failure instanceof DOMException && failure.name === 'AbortError'))
         error = 'The folder picker could not open. Please try again.';
@@ -248,27 +270,68 @@
   }
 
   async function loadPickedFiles(event: Event) {
-    const files = Array.from((event.currentTarget as HTMLInputElement).files ?? []);
+    const files = libraryFiles(Array.from((event.currentTarget as HTMLInputElement).files ?? []));
     if (!files.length) return;
-    ++scanToken;
-    loading = false;
-
+    const token = ++scanToken;
+    loading = true;
     error = '';
-    loadFiles(files);
+    const name = files[0]?.webkitRelativePath.split('/')[0] || 'Library';
+    const catalog = buildLibrary(files);
+    const saved = await saveLibrary(
+      null,
+      {
+        name,
+        files: files.map((file) => ({ file, path: file.webkitRelativePath || file.name }))
+      },
+      catalog
+    );
+    if (token !== scanToken) return;
     savedHandle = null;
+    accessNeeded = false;
+    connectLibraryFiles(null, files);
+    loadBooks(catalog, name);
+    loading = false;
+    if (!saved) error = 'Your library is open, but could not be remembered on this device.';
+  }
 
-    await idb.del('kv', 'root');
+  async function ensureLibraryAccess() {
+    if (!accessNeeded) return true;
+    if (!savedHandle) {
+      error = 'This browser needs you to choose the folder again to play its original files.';
+      await chooseFolder();
+      return false;
+    }
+    const handle = savedHandle;
+    const token = scanToken;
+    error = '';
+    try {
+      // Called directly from a book/play click, while user activation is available.
+      if ((await handle.requestPermission({ mode: 'read' })) !== 'granted') {
+        error = 'Folder access was not granted. Tap a book to try again or choose another folder.';
+        return false;
+      }
+      if (token !== scanToken) return false;
+      accessNeeded = false;
+      coverLoader.dispose();
+      coverLoader = new CoverLoader();
+      for (const book of books) book.coverUrl = undefined;
+      return true;
+    } catch {
+      error = 'The remembered folder is unavailable. Please choose the folder again.';
+      return false;
+    }
   }
 
   async function reopenFolder() {
-    if (!savedHandle) return;
-    error = '';
-    try {
-      if ((await savedHandle.requestPermission({ mode: 'read' })) === 'granted')
-        await openHandle(savedHandle, false);
-      else error = 'Folder access was not granted. Reopen the library or choose another folder.';
-    } catch {
-      error = 'The remembered folder is unavailable. Please choose the folder again.';
+    if (await ensureLibraryAccess()) {
+      if (!libraryName && savedHandle) await openHandle(savedHandle);
+    }
+  }
+
+  async function refreshLibrary() {
+    if (await ensureLibraryAccess()) {
+      if (savedHandle) await openHandle(savedHandle);
+      else await chooseFolder();
     }
   }
 
@@ -281,6 +344,27 @@
     filter = 'all';
   }
 
+  async function checkFolderAccess() {
+    if (document.visibilityState !== 'visible' || !savedHandle || loading) return;
+    // Returning from the background can expire a browser's one-time grant.
+    if (
+      !books.some((book) => book.files.some((file) => 'source' in file && file.source === 'folder'))
+    )
+      return;
+    const handle = savedHandle;
+    const token = scanToken;
+    try {
+      const granted = (await handle.queryPermission({ mode: 'read' })) === 'granted';
+      if (token !== scanToken || handle !== savedHandle || accessNeeded === !granted) return;
+      accessNeeded = !granted;
+      coverLoader.dispose();
+      coverLoader = new CoverLoader(granted);
+      for (const book of books) book.coverUrl = undefined;
+    } catch {
+      if (token === scanToken) accessNeeded = true;
+    }
+  }
+
   onMount(() => {
     const savedView = store.get<LibraryView>('view', 'series');
     view = ['series', 'folders', 'az'].includes(savedView) ? savedView : 'series';
@@ -288,24 +372,37 @@
     likes = store.get('likes', {});
     read = store.get('read', {});
     ready = true;
+    document.addEventListener('visibilitychange', checkFolderAccess);
     const token = scanToken;
     void (async () => {
-      const handle = await idb.get<LibraryDirectory>('kv', 'root');
-      if (!handle || token !== scanToken || !('showDirectoryPicker' in window)) return;
-      savedHandle = handle;
+      const { handle, catalog, legacy } = await readSavedLibrary();
+      if (token !== scanToken) return;
+      savedHandle = handle ?? null;
+      connectLibraryFiles(savedHandle);
+      accessNeeded = catalog ? catalog.version === 2 : !!handle;
+      if (catalog) loadBooks(catalog.books, catalog.name, !accessNeeded);
+      else if (legacy) {
+        const files = restoreLibraryFiles(legacy);
+        connectLibraryFiles(null, files);
+        accessNeeded = false;
+        loadBooks(buildLibrary(files), legacy.name);
+      }
       try {
-        await navigator.storage?.persist?.();
-        if (
-          token === scanToken &&
-          (await handle.queryPermission({ mode: 'read' })) === 'granted' &&
-          token === scanToken
-        )
-          await openHandle(handle, false);
+        if (handle && (await handle.queryPermission({ mode: 'read' })) === 'granted') {
+          if (token !== scanToken) return;
+          accessNeeded = false;
+          if (catalog) {
+            coverLoader.dispose();
+            coverLoader = new CoverLoader();
+            for (const book of books) book.coverUrl = undefined;
+          } else if (!legacy) await openHandle(handle);
+        }
       } catch {
-        /* The reopen button is a fallback when no local copy is available. */
+        // The cached catalogue stays usable; permission can be granted when playing.
       }
     })();
     return () => {
+      document.removeEventListener('visibilitychange', checkFolderAccess);
       ++scanToken;
       coverLoader.dispose();
     };
@@ -327,12 +424,30 @@
   onchange={loadPickedFiles}
 />
 <div class="library" class:with-player={selectedBook !== undefined}>
-  <LibraryToolbar bind:query bind:view bind:filter onchoose={chooseFolder} busy={loading} />
+  <LibraryToolbar
+    bind:query
+    bind:view
+    bind:filter
+    onchoose={chooseFolder}
+    onrefresh={refreshLibrary}
+    canRefresh={!!libraryName}
+    busy={loading}
+  />
   <main>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if loading}
+    {#if accessNeeded && books.length}
+      <p class="access-note">
+        {#if savedHandle}
+          Your library is ready. Tap a book to allow access to its audio.
+        {:else}
+          Your library is remembered. This browser needs the folder selected again to play audio.
+          <button onclick={chooseFolder} disabled={loading}>Choose folder</button>
+        {/if}
+      </p>
+    {/if}
+    {#if loading && !books.length}
       <LibraryEmptyState
-       title="Scanning your library…"
+        title="Scanning your library…"
         message="Finding audiobooks in your folder and its subfolders."
       />
     {:else if books.length === 0}
@@ -406,6 +521,7 @@
       onchapter={(index) => startBook(selectedBook, index)}
       onfinish={finishBook}
       onclose={closePlayer}
+      onaccess={ensureLibraryAccess}
     />
   {/if}
 </div>
@@ -432,6 +548,10 @@
   }
   .error {
     color: var(--accent);
+    margin-bottom: 16px;
+  }
+  .access-note {
+    color: var(--muted);
     margin-bottom: 16px;
   }
   .folder-group {
