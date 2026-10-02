@@ -3,9 +3,9 @@
   let { title, count, children }: { title: string; count: number; children: Snippet } = $props();
 </script>
 
-<section data-library-background>
+<section>
   <h2>{title}<small>{count} {count === 1 ? 'book' : 'books'}</small></h2>
-  <div class="book-grid" data-library-background>{@render children()}</div>
+  <div class="book-grid">{@render children()}</div>
 </section>
 
 <style>

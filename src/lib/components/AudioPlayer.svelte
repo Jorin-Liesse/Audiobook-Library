@@ -9,13 +9,15 @@
     playback,
     onprogress,
     onchapter,
-    onfinish
+    onfinish,
+    onclose
   }: {
     book: Book;
     playback: Playback;
     onprogress: (book: Book, progress: BookProgress) => void;
     onchapter: (index: number) => void;
     onfinish: (book: Book) => void;
+    onclose: () => void;
   } = $props();
   let audio = $state<HTMLAudioElement>();
   let playing = $state(false);
@@ -157,7 +159,7 @@
       error = 'This audio file cannot be played in this browser.';
   }}
 ></audio>
-<aside class="player" data-audiobook-player aria-label="Audiobook player">
+<aside class="player" aria-label="Audiobook player">
   <div class="inner">
     <div class="now">
       <div class="artwork">
@@ -195,6 +197,13 @@
         >
       </div>
     </div>
+    <button
+      class="close"
+      type="button"
+      aria-label="Close player"
+      title="Close player"
+      onclick={onclose}><Icon name="close" size={20} /></button
+    >
   </div>
 </aside>
 
@@ -213,7 +222,7 @@
     max-width: 1320px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr);
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr) auto;
     gap: 24px;
     align-items: center;
   }
@@ -282,6 +291,21 @@
     background: var(--ink);
     color: var(--bg);
   }
+  .close {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+  }
+  .close:hover {
+    background: var(--bg);
+    color: var(--ink);
+  }
   input {
     appearance: none;
     height: 4px;
@@ -320,7 +344,7 @@
   }
   @media (max-width: 640px) {
     .inner {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
     }
     .now {
@@ -330,6 +354,10 @@
     .controls {
       grid-column: 1 / -1;
       gap: 6px;
+    }
+    .close {
+      grid-column: 2;
+      grid-row: 1;
     }
     .transport {
       gap: 6px;

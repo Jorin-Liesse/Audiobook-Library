@@ -140,10 +140,7 @@
     startBook(book, saved?.i ?? 0, saved?.t ?? 0);
   }
 
-  function deselectOnClickAway(event: MouseEvent) {
-    if (!playback || !(event.target instanceof Element)) return;
-    // Only the background itself counts; controls and content inside it do not.
-    if (!event.target.matches('[data-library-background], body, html')) return;
+  function closePlayer() {
     player?.flush();
     playback = null;
   }
@@ -326,8 +323,6 @@
   });
 </script>
 
-<svelte:window onclick={deselectOnClickAway} />
-
 {#snippet bookCard(book: Book)}
   <BookCard {book} playing={selectedBook?.id === book.id} onopen={openBook} onmark={toggleMark} />
 {/snippet}
@@ -342,7 +337,7 @@
   {...{ webkitdirectory: true }}
   onchange={loadPickedFiles}
 />
-<div class="library" data-library-background class:with-player={selectedBook !== undefined}>
+<div class="library" class:with-player={selectedBook !== undefined}>
   <LibraryToolbar
     bind:query
     bind:view
@@ -352,7 +347,7 @@
     remembered={!!savedHandle}
     busy={loading}
   />
-  <main data-library-background>
+  <main>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if loading}
       <LibraryEmptyState
@@ -393,9 +388,9 @@
         {/each}
       </nav>
       {#if folders.folders.length}
-        <div class="folder-group" data-library-background>
+        <div class="folder-group">
           {#if folders.books.length}<h2 class="folder-heading">Folders</h2>{/if}
-          <div class="book-grid" data-library-background>
+          <div class="book-grid">
             {#each folders.folders as folder (folder.path.join('/'))}
               <FolderTile
                 name={folder.name}
@@ -409,7 +404,7 @@
       {/if}
       {#if folders.books.length}
         {#if folders.folders.length}<h2 class="folder-heading">Books</h2>{/if}
-        <div class="book-grid" data-library-background>
+        <div class="book-grid">
           {#each folders.books as book (book.id)}{@render bookCard(book)}{/each}
         </div>
       {/if}
@@ -429,6 +424,7 @@
       onprogress={saveProgress}
       onchapter={(index) => startBook(selectedBook, index)}
       onfinish={finishBook}
+      onclose={closePlayer}
     />
   {/if}
 </div>

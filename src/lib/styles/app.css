@@ -1,6 +1,5 @@
 :root {
   font-family:
-    'Instrument Sans',
     system-ui,
     -apple-system,
     'Segoe UI',
@@ -15,10 +14,12 @@
   --line: #c9d1c6;
   --accent: #b5760f;
   --accent-ink: #fff;
-  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --serif: Georgia, 'Times New Roman', serif;
   --gutter: clamp(16px, 4vw, 40px);
   line-height: 1.5;
   color-scheme: light;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
 }
 
 @media (prefers-color-scheme: dark) {

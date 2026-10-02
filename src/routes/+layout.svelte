@@ -11,18 +11,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Audiobook Library" />
   <meta name="text-scale" content="scale" />
+  <meta name="theme-color" content="#e8ece4" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#151c1a" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Audiobooks" />
 
   <link rel="icon" type="image/svg+xml" href={asset('favicon.svg')} />
+  <link rel="manifest" href={asset('manifest.webmanifest')} />
+  <link rel="apple-touch-icon" href={asset('icons/apple-touch-icon.png')} />
 
   <title>Audiobook Library</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-
-  <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap"
-    rel="stylesheet"
-  />
 </svelte:head>
 
 {@render children()}

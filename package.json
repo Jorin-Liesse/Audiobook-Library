@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "deploy": "gh workflow run deploy.yml",
     "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project src/service-worker/tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "node --test test/*.test.ts",
     "lint": "prettier --check . && eslint .",
