@@ -82,6 +82,20 @@ export const store = {
   }
 };
 
+export async function requestPersistentStorage(): Promise<boolean> {
+  try {
+    const storage = globalThis.navigator?.storage;
+    if (!storage?.persist) return false;
+    if (await storage.persisted?.()) return true;
+    // Protect the catalogue and saved handles from eviction. Folder permissions
+    // are granted separately through FileSystemHandle.requestPermission().
+    return await storage.persist();
+  } catch {
+    // Unsupported or refused persistence must not interrupt opening the library.
+    return false;
+  }
+}
+
 let database: Promise<IDBDatabase> | undefined;
 function openDatabase() {
   return (database ??= new Promise<IDBDatabase>((resolve, reject) => {
@@ -168,6 +182,7 @@ export async function saveLibrary(
         }
       };
     });
+    void requestPersistentStorage();
     return true;
   } catch {
     return false;

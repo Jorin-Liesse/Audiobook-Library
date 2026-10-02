@@ -19,6 +19,7 @@
   import {
     connectLibraryFiles,
     readSavedLibrary,
+    requestPersistentStorage,
     restoreLibraryFiles,
     saveLibrary,
     store
@@ -311,6 +312,7 @@
         return false;
       }
       if (token !== scanToken) return false;
+      void requestPersistentStorage();
       accessNeeded = false;
       coverLoader.dispose();
       coverLoader = new CoverLoader();
@@ -372,6 +374,8 @@
     likes = store.get('likes', {});
     read = store.get('read', {});
     ready = true;
+    // Run independently so storage permission cannot delay catalogue restoration.
+    void requestPersistentStorage();
     document.addEventListener('visibilitychange', checkFolderAccess);
     const token = scanToken;
     void (async () => {
@@ -438,7 +442,8 @@
     {#if accessNeeded && books.length}
       <p class="access-note">
         {#if savedHandle}
-          Your library is ready. Tap a book to allow access to its audio.
+          Your library is ready. Tap a book to allow access to its audio. If Chrome offers “Allow on
+          every visit”, choose it to reopen automatically.
         {:else}
           Your library is remembered. This browser needs the folder selected again to play audio.
           <button onclick={chooseFolder} disabled={loading}>Choose folder</button>
