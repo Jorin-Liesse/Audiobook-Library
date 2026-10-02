@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audiobook Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #e8ece4;
+    --surface: #f5f7f1;
+    --ink: #1d2926;
+    --muted: #5d6b66;
+    --line: #c9d1c6;
+    --accent: #b5760f;
+    --accent-ink: #fff;
+    --playing: #b5760f;
+    --serif: "Fraunces", Georgia, "Times New Roman", serif;
+    --sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151c1a;
+      --surface: #1e2826;
+      --ink: #e6ebe4;
+      --muted: #94a39d;
+      --line: #2f3d3a;
+      --accent: #e0a23a;
+      --accent-ink: #1a1405;
+      --playing: #e0a23a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    padding-bottom: 120px;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  header.top {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    padding: 14px clamp(16px, 4vw, 40px);
+    display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-size: 1.6rem; font-weight: 700; margin: 0; letter-spacing: -0.01em;
+    margin-right: auto;
+  }
+  .pick {
+    background: var(--accent); color: var(--accent-ink);
+    border-radius: 6px; padding: 8px 16px; font-weight: 600; cursor: pointer;
+  }
+  .pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .pick:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .tabs label { cursor: pointer; }
+  .tabs input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .tabs span { display: block; padding: 8px 16px; font-weight: 500; color: var(--muted); }
+  .tabs input:checked + span { background: var(--ink); color: var(--bg); }
+  .tabs input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .forget, .restore {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 6px; padding: 8px 14px; font-weight: 500;
+  }
+  .restore { margin-top: 16px; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .search {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 8px; padding: 8px 12px; font: inherit; min-width: 200px;
+  }
+  .count { color: var(--muted); font-size: .9rem; }
+
+  main { padding: 24px clamp(16px, 4vw, 40px); max-width: 1400px; margin: 0 auto; }
+
+  .empty { max-width: 460px; margin: 12vh auto; text-align: center; }
+  .empty h2 { font-family: var(--serif); font-size: 1.8rem; margin: 0 0 8px; }
+  .empty p { color: var(--muted); margin: 0; }
+
+  /* Section headings */
+  .group { margin-bottom: 36px; }
+  .group > h2 {
+    font-family: var(--serif); font-weight: 700;
+    font-size: 1.5rem; margin: 0 0 14px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  .group > h2 small { font: 400 .85rem var(--sans); color: var(--muted); }
+
+  /* Grid + cards */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px 16px; align-items: start; }
+  .card { background: none; border: 0; padding: 0; text-align: left; display: block; width: 100%; }
+  .cover {
+    aspect-ratio: 1; border-radius: 4px; overflow: hidden;
+    display: flex; align-items: flex-end; padding: 12px;
+    font-family: var(--serif); font-weight: 700; line-height: 1.15;
+    font-size: clamp(.95rem, 1.2vw, 1.1rem); color: #fff;
+    box-shadow: 0 1px 0 var(--line);
+    position: relative;
+  }
+  .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .card .t {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+    overflow: hidden; overflow-wrap: anywhere;
+    margin-top: 8px; font-weight: 600; font-size: .92rem; line-height: 1.3;
+    min-height: 2.6em;               /* always reserve two lines so every card is the same height */
+  }
+  .card .m {
+    display: block; color: var(--muted); font-size: .8rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cover > span {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5;
+    overflow: hidden; overflow-wrap: anywhere;
+  }
+  .card:hover .cover { transform: translateY(-2px); }
+  .cover { transition: transform .15s; }
+  .card.playing .cover { outline: 3px solid var(--playing); outline-offset: 2px; }
+  .card.playing .t { color: var(--playing); }
+
+  /* Tree */
+  .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+  .tree ul { margin-left: 18px; border-left: 1px solid var(--line); padding-left: 14px; }
+  .tree details > summary {
+    cursor: pointer; padding: 6px 0; font-weight: 600; list-style: none;
+    display: flex; gap: 8px; align-items: baseline;
+  }
+  .tree summary::-webkit-details-marker { display: none; }
+  .tree summary::before { content: "▸"; color: var(--muted); width: 1em; display: inline-block; transition: transform .12s; }
+  .tree details[open] > summary::before { transform: rotate(90deg); }
+  .tree summary small { color: var(--muted); font-weight: 400; }
+  .tree .book {
+    background: none; border: 0; padding: 5px 0 5px 1.4em; text-align: left; width: 100%;
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .tree .book:hover { color: var(--accent); }
+  .tree .book small { color: var(--muted); }
+  .tree .book.playing { color: var(--playing); font-weight: 600; }
+
+  /* Player */
+  .player {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: var(--surface); border-top: 1px solid var(--line);
+    padding: 10px clamp(16px, 4vw, 40px) calc(10px + env(safe-area-inset-bottom, 0px));
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 2fr); gap: 8px 24px; align-items: center;
+  }
+  .player[hidden] { display: none; }
+  .now { min-width: 0; }
+  .now b { display: block; font-family: var(--serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now span { display: block; color: var(--muted); font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctrl { display: flex; gap: 8px; align-items: center; }
+  .ctrl audio { flex: 1; min-width: 0; height: 36px; }
+  .ctrl button, .ctrl select {
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    border-radius: 6px; padding: 6px 10px; font: inherit;
+  }
+  @media (max-width: 640px) {
+    .player { grid-template-columns: 1fr; }
+    .search { flex: 1 1 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Audiobook Library</h1>
+
+  <div class="tabs" role="radiogroup" aria-label="Layout">
+    <label><input type="radio" name="view" value="az" checked><span>All A–Z</span></label>
+    <label><input type="radio" name="view" value="folders"><span>Folders</span></label>
+    <label><input type="radio" name="view" value="series"><span>Series</span></label>
+  </div>
+
+  <input class="search" id="search" type="search" placeholder="Search title or series" aria-label="Search">
+  <span class="count" id="count"></span>
+
+  <button class="forget" id="forget" hidden title="Stop remembering this folder in this browser">Forget folder</button>
+
+  <label class="pick">
+    <span id="pickLabel">Choose folder</span>
+    <input type="file" id="folderInput" webkitdirectory multiple>
+  </label>
+</header>
+
+<main id="main"></main>
+
+<div class="player" id="player" hidden>
+  <div class="now">
+    <b id="npTitle"></b>
+    <span id="npChapter"></span>
+  </div>
+  <div class="ctrl">
+    <button id="prev" aria-label="Previous chapter">⏮</button>
+    <audio id="audio" controls></audio>
+    <button id="next" aria-label="Next chapter">⏭</button>
+    <select id="speed" aria-label="Playback speed">
+      <option value="0.75">0.75×</option>
+      <option value="1" selected>1×</option>
+      <option value="1.25">1.25×</option>
+      <option value="1.5">1.5×</option>
+      <option value="2">2×</option>
+    </select>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+<script>
+/* ---------- helpers ---------- */
+const AUDIO_RE = /\.(mp3|m4a|m4b|aac|ogg|oga|opus|flac|wav|wma|webm)$/i;
+const IMAGE_RE = /\.(jpe?g|png|webp|gif)$/i;
+const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+const isAudio = f => f.type.startsWith('audio/') || AUDIO_RE.test(f.name);
+const stripExt = n => n.replace(/\.[^.]+$/, '');
+const tidy = s => s.replace(/_/g, ' ').trim();
+const sortKey = t => t.replace(/^(the|a|an)\s+/i, '');
+const dirOf = f => f.webkitRelativePath.slice(0, f.webkitRelativePath.lastIndexOf('/'));
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function hue(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
+  return h;
+}
+
+/* ---------- persistence ----------
+   localStorage: small settings (layout, playback positions, last book).
+   IndexedDB: the folder handle (so we can reopen the library) and cached cover blobs. */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('abl.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('abl.' + k, JSON.stringify(v)); } catch (e) {} },
+};
+
+const idb = (() => {
+  let dbp;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    const r = indexedDB.open('audiobook-library', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('kv'); r.result.createObjectStore('covers'); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  }));
+  const run = async (storeName, mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction(storeName, mode);
+      const req = fn(t.objectStore(storeName));
+      t.oncomplete = () => res(req && req.result);
+      t.onerror = () => rej(t.error);
+    });
+  };
+  return {
+    get: (s, k) => run(s, 'readonly', o => o.get(k)).catch(() => undefined),
+    set: (s, k, v) => run(s, 'readwrite', o => o.put(v, k)).catch(() => {}),
+    del: (s, k) => run(s, 'readwrite', o => o.delete(k)).catch(() => {}),
+  };
+})();
+
+/* ---------- build library from the file list ----------
+   Rules:
+   - A .m4b (or a lone audio file in a folder) is a one-file book.
+   - Several non-m4b files in one folder are the chapters of one book named after that folder.
+   - Series = the name of the folder that holds the book (unless that is the picked root folder). */
+function buildLibrary(allFiles) {
+  const audio = allFiles.filter(isAudio);
+  const images = allFiles.filter(f => IMAGE_RE.test(f.name));
+
+  const dirs = new Map();
+  for (const f of audio) {
+    const parts = f.webkitRelativePath.split('/');
+    parts.pop();
+    const key = parts.join('/');
+    if (!dirs.has(key)) dirs.set(key, { parts, files: [] });
+    dirs.get(key).files.push(f);
+  }
+
+  const books = [];
+  const pickImage = (list, stem) =>
+    (stem && list.find(i => stripExt(i.name).toLowerCase() === stem.toLowerCase())) ||
+    list.find(i => /cover|folder|front|art/i.test(i.name)) ||
+    list[0] || null;
+
+  const add = (title, treePath, files, cover, parentCover) => {
+    files.sort((a, b) => coll.compare(a.webkitRelativePath, b.webkitRelativePath));
+    books.push({
+      id: books.length,
+      key: treePath.join('/') + '/' + tidy(title),   // stable across visits, used for saved progress + cover cache
+      title: tidy(title),
+      treePath,
+      series: treePath.length > 1 ? tidy(treePath[treePath.length - 1]) : null,
+      files,
+      cover,            // image file in the same folder
+      parentCover,      // image file one level up (last resort)
+    });
+  };
+
+  for (const { parts, files } of dirs.values()) {
+    const dirPath = parts.join('/');
+    const dirName = parts[parts.length - 1] || 'Library';
+    const solo = files.length === 1;
+    const fileBooks = [], chapters = [];
+    files.forEach(f => ((/\.m4b$/i.test(f.name) || solo) ? fileBooks : chapters).push(f));
+
+    const inDir = images.filter(i => dirOf(i) === dirPath);
+    const parentDir = parts.slice(0, -1).join('/');
+    const inParent = parts.length > 1 ? images.filter(i => dirOf(i) === parentDir) : [];
+    const parentCover = pickImage(inParent);
+
+    if (chapters.length) add(dirName, parts.slice(0, -1), chapters, pickImage(inDir), parentCover);
+
+    for (const f of fileBooks) {
+      const own = pickImage(inDir, stripExt(f.name));
+      if (fileBooks.length === 1 && !chapters.length && parts.length > 1) {
+        // folder holds exactly one single-file book: the folder name is the title
+        add(dirName, parts.slice(0, -1), [f], own, parentCover);
+      } else {
+        // several books share this folder: only accept an image named like the file
+        const matched = inDir.find(i => stripExt(i.name).toLowerCase() === stripExt(f.name).toLowerCase()) || null;
+        add(stripExt(f.name), parts, [f], matched, null);
+      }
+    }
+  }
+  return books;
+}
+
+/* ---------- state ---------- */
+let library = [];
+let view = store.get('view', 'az');
+let query = '';
+let savedHandle = null;                       // folder handle remembered from a previous visit
+const progress = store.get('progress', {});   // { bookKey: { i: chapterIndex, t: seconds } }
+let current = null;      // { book, index }
+let currentUrl = null;
+
+const $ = id => document.getElementById(id);
+const main = $('main');
+
+/* ---------- rendering ---------- */
+function visibleBooks() {
+  const q = query.trim().toLowerCase();
+  if (!q) return library;
+  return library.filter(b =>
+    b.title.toLowerCase().includes(q) ||
+    (b.series && b.series.toLowerCase().includes(q)));
+}
+
+/* Cover lookup order: image in the book's folder -> art embedded in the
+   audio file's tags (ID3 / MP4 / FLAC) -> image one folder up. */
+function readEmbeddedArt(file) {
+  return new Promise(resolve => {
+    if (!window.jsmediatags) return resolve(null);
+    try {
+      window.jsmediatags.read(file, {
+        onSuccess: tag => {
+          const pic = tag.tags && tag.tags.picture;
+          if (!pic || !pic.data) return resolve(null);
+          resolve(new Blob([new Uint8Array(pic.data)], { type: pic.format || 'image/jpeg' }));
+        },
+        onError: () => resolve(null),
+      });
+    } catch (e) { resolve(null); }
+  });
+}
+
+async function findCoverUrl(book) {
+  if (book._coverUrl !== undefined) return book._coverUrl;
+  let blob = book.cover || null;
+  if (!blob) blob = (await idb.get('covers', book.key)) || null;   // cached from an earlier visit
+  if (!blob) {
+    // try the first couple of files in case only some carry art
+    for (const f of book.files.slice(0, 2)) {
+      blob = await readEmbeddedArt(f);
+      if (blob) { idb.set('covers', book.key, blob); break; }
+    }
+  }
+  if (!blob) blob = book.parentCover || null;
+  book._coverUrl = blob ? URL.createObjectURL(blob) : null;
+  return book._coverUrl;
+}
+
+// small queue so hundreds of books don't all read their files at once
+const coverQueue = [];
+let coverActive = 0;
+function queueCover(book, done) {
+  coverQueue.push({ book, done });
+  pumpCovers();
+}
+function pumpCovers() {
+  while (coverActive < 4 && coverQueue.length) {
+    const { book, done } = coverQueue.shift();
+    coverActive++;
+    findCoverUrl(book).then(done).finally(() => { coverActive--; pumpCovers(); });
+  }
+}
+
+const coverObserver = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    coverObserver.unobserve(e.target);
+    const div = e.target;
+    const book = library[Number(div.dataset.book)];
+    if (!book) continue;
+    queueCover(book, url => url && div.isConnected && attachImg(div, url));
+  }
+}, { rootMargin: '300px' });
+
+function attachImg(div, url) {
+  if (div.querySelector('img')) return;
+  const img = document.createElement('img');
+  img.alt = '';
+  img.src = url;
+  div.textContent = '';
+  div.appendChild(img);
+}
+
+function coverEl(book) {
+  const div = document.createElement('div');
+  div.className = 'cover';
+  div.style.background = `hsl(${hue(book.title)} 32% 30%)`;
+  div.dataset.book = book.id;
+  if (book._coverUrl) {
+    attachImg(div, book._coverUrl);
+  } else {
+    const label = document.createElement('span');
+    label.textContent = book.title;
+    div.appendChild(label);
+    if (book._coverUrl === undefined) coverObserver.observe(div);
+  }
+  return div;
+}
+
+function cardEl(book) {
+  const b = document.createElement('button');
+  b.className = 'card';
+  b.dataset.id = book.id;
+  b.title = book.title + (book.series ? ' — ' + book.series : '');
+  b.appendChild(coverEl(book));
+  const t = document.createElement('span'); t.className = 't'; t.textContent = book.title;
+  const m = document.createElement('span'); m.className = 'm';
+  const n = book.files.length;
+  m.textContent = (book.series ? book.series + ' · ' : '') + (n > 1 ? n + ' chapters' : '1 file');
+  b.append(t, m);
+  b.addEventListener('click', () => openBook(book));
+  return b;
+}
+
+function gridOf(books) {
+  const g = document.createElement('div');
+  g.className = 'grid';
+  books.forEach(b => g.appendChild(cardEl(b)));
+  return g;
+}
+
+function section(title, sub, books) {
+  const s = document.createElement('section');
+  s.className = 'group';
+  const h = document.createElement('h2');
+  h.textContent = title;
+  if (sub) { const sm = document.createElement('small'); sm.textContent = sub; h.appendChild(sm); }
+  s.append(h, gridOf(books));
+  return s;
+}
+
+function renderAZ(books) {
+  const sorted = [...books].sort((a, b) => coll.compare(sortKey(a.title), sortKey(b.title)));
+  const groups = new Map();
+  for (const b of sorted) {
+    const c = sortKey(b.title).charAt(0).toUpperCase();
+    const k = /[A-Z]/.test(c) ? c : '#';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(b);
+  }
+  const frag = document.createDocumentFragment();
+  for (const [letter, list] of groups) frag.appendChild(section(letter, list.length + (list.length === 1 ? ' book' : ' books'), list));
+  return frag;
+}
+
+function renderSeries(books) {
+  const bySeries = new Map();
+  const standalone = [];
+  for (const b of books) {
+    if (!b.series) { standalone.push(b); continue; }
+    if (!bySeries.has(b.series)) bySeries.set(b.series, []);
+    bySeries.get(b.series).push(b);
+  }
+  const frag = document.createDocumentFragment();
+  [...bySeries.keys()].sort((a, b) => coll.compare(sortKey(a), sortKey(b))).forEach(name => {
+    const list = bySeries.get(name).sort((a, b) => coll.compare(a.title, b.title));
+    frag.appendChild(section(name, list.length + (list.length === 1 ? ' book' : ' books'), list));
+  });
+  if (standalone.length) {
+    standalone.sort((a, b) => coll.compare(sortKey(a.title), sortKey(b.title)));
+    frag.appendChild(section('Standalone', standalone.length + ' books', standalone));
+  }
+  return frag;
+}
+
+function renderTree(books) {
+  const root = { folders: new Map(), books: [] };
+  for (const b of books) {
+    let node = root;
+    for (const part of b.treePath) {
+      if (!node.folders.has(part)) node.folders.set(part, { folders: new Map(), books: [] });
+      node = node.folders.get(part);
+    }
+    node.books.push(b);
+  }
+  const total = n => n.books.length + [...n.folders.values()].reduce((s, f) => s + total(f), 0);
+  const searching = query.trim() !== '';
+
+  const build = (node, depth) => {
+    const ul = document.createElement('ul');
+    if (depth === 0) ul.className = 'tree';
+    [...node.folders.keys()].sort(coll.compare).forEach(name => {
+      const child = node.folders.get(name);
+      const li = document.createElement('li');
+      const d = document.createElement('details');
+      d.open = searching || depth === 0;
+      const s = document.createElement('summary');
+      s.append(tidy(name));
+      const sm = document.createElement('small'); sm.textContent = total(child);
+      s.appendChild(sm);
+      d.append(s, build(child, depth + 1));
+      li.appendChild(d);
+      ul.appendChild(li);
+    });
+    node.books.sort((a, b) => coll.compare(a.title, b.title)).forEach(b => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.className = 'book';
+      btn.dataset.id = b.id;
+      btn.append(b.title);
+      const sm = document.createElement('small');
+      sm.textContent = b.files.length > 1 ? b.files.length + ' chapters' : '';
+      btn.appendChild(sm);
+      btn.addEventListener('click', () => openBook(b));
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
+    return ul;
+  };
+  const wrap = document.createElement('div');
+  wrap.appendChild(build(root, 0));
+  return wrap;
+}
+
+function render() {
+  main.innerHTML = '';
+  $('forget').hidden = !savedHandle;
+  if (!library.length) {
+    $('count').textContent = '';
+    if (savedHandle) {
+      main.innerHTML = `<div class="empty"><h2>Welcome back</h2>
+        <p>Your library <b>${esc(savedHandle.name)}</b> is remembered. The browser needs your OK to read it again.</p>
+        <p style="margin-top:16px"><button class="pick" id="reopen" style="border:0">Reopen library</button></p></div>`;
+      $('reopen').addEventListener('click', async () => {
+        const perm = await savedHandle.requestPermission({ mode: 'read' });
+        if (perm === 'granted') openHandle(savedHandle, false);
+      });
+    } else {
+      main.innerHTML = `<div class="empty"><h2>Pick your audiobook folder</h2>
+        <p>Every audio file in the folder and its subfolders is added to the library. Nothing is uploaded; files stay on your computer.</p></div>`;
+    }
+    return;
+  }
+  const books = visibleBooks();
+  $('count').textContent = books.length + ' of ' + library.length + ' books';
+  if (!books.length) {
+    main.innerHTML = `<div class="empty"><h2>No matches</h2><p>Try a different title or series name.</p></div>`;
+    return;
+  }
+  const out = view === 'az' ? renderAZ(books) : view === 'series' ? renderSeries(books) : renderTree(books);
+  main.appendChild(out);
+  markPlaying();
+}
+
+function markPlaying() {
+  document.querySelectorAll('.card, .book').forEach(el => {
+    el.classList.toggle('playing', !!current && Number(el.dataset.id) === current.book.id);
+  });
+}
+
+/* ---------- player ---------- */
+const audio = $('audio');
+
+function play(book, index, startTime = 0, autoplay = true) {
+  if (index < 0 || index >= book.files.length) return;
+  current = { book, index };
+  if (currentUrl) URL.revokeObjectURL(currentUrl);
+  currentUrl = URL.createObjectURL(book.files[index]);
+  if (startTime > 0) {
+    audio.addEventListener('loadedmetadata', () => { audio.currentTime = startTime; }, { once: true });
+  }
+  audio.src = currentUrl;
+  audio.playbackRate = Number($('speed').value);
+  if (autoplay) audio.play().catch(() => {});
+  $('player').hidden = false;
+  $('npTitle').textContent = book.title;
+  $('npChapter').textContent = book.files.length > 1
+    ? `Chapter ${index + 1} of ${book.files.length} · ${tidy(stripExt(book.files[index].name))}`
+    : (book.series || 'Single file');
+  $('prev').disabled = index === 0;
+  $('next').disabled = index === book.files.length - 1;
+  markPlaying();
+}
+
+// Start a book where you left off
+function openBook(book) {
+  const p = progress[book.key];
+  if (p && p.i < book.files.length) play(book, p.i, p.t);
+  else play(book, 0);
+}
+
+function saveProgress() {
+  if (!current || !audio.currentTime) return;
+  progress[current.book.key] = { i: current.index, t: Math.floor(audio.currentTime) };
+  store.set('progress', progress);
+  store.set('last', current.book.key);
+}
+
+// Put the last played book back in the player (paused)
+function restoreLast() {
+  const key = store.get('last', null);
+  const book = key && library.find(b => b.key === key);
+  if (!book) return;
+  const p = progress[key];
+  play(book, p ? p.i : 0, p ? p.t : 0, false);
+}
+
+let lastSave = 0;
+audio.addEventListener('timeupdate', () => {
+  const now = Date.now();
+  if (now - lastSave > 5000) { lastSave = now; saveProgress(); }
+});
+audio.addEventListener('pause', saveProgress);
+window.addEventListener('pagehide', saveProgress);
+
+audio.addEventListener('ended', () => {
+  if (!current) return;
+  if (current.index + 1 < current.book.files.length) {
+    play(current.book, current.index + 1);
+  } else {
+    delete progress[current.book.key];          // finished: next time starts from the beginning
+    store.set('progress', progress);
+  }
+});
+$('prev').addEventListener('click', () => current && play(current.book, current.index - 1));
+$('next').addEventListener('click', () => current && play(current.book, current.index + 1));
+$('speed').addEventListener('change', e => { audio.playbackRate = Number(e.target.value); });
+
+/* ---------- loading a library ---------- */
+function loadFiles(files) {
+  library.forEach(b => b._coverUrl && URL.revokeObjectURL(b._coverUrl));
+  coverQueue.length = 0;
+  library = buildLibrary(files.filter(f => !f.name.startsWith('.')));   // skip ._junk files from macOS
+  render();
+  restoreLast();
+}
+
+// Walk a folder handle (Chromium File System Access API) and return File objects
+// that look like the ones from <input webkitdirectory>.
+async function walk(dir, prefix, out) {
+  for await (const [name, h] of dir.entries()) {
+    if (name.startsWith('.')) continue;
+    if (h.kind === 'directory') {
+      await walk(h, prefix + name + '/', out);
+    } else if (AUDIO_RE.test(name) || IMAGE_RE.test(name)) {
+      const f = await h.getFile();
+      Object.defineProperty(f, 'webkitRelativePath', { value: prefix + name });
+      out.push(f);
+    }
+  }
+}
+
+async function openHandle(handle, remember) {
+  main.innerHTML = '<div class="empty"><h2>Scanning ' + esc(handle.name) + '…</h2></div>';
+  const files = [];
+  await walk(handle, handle.name + '/', files);
+  if (remember) { savedHandle = handle; await idb.set('kv', 'root', handle); }
+  loadFiles(files);
+}
+
+async function pickFolder() {
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'read' });
+    await openHandle(handle, true);
+  } catch (e) { /* picker cancelled */ }
+}
+
+/* ---------- wiring ---------- */
+// Chromium: use the directory picker so the folder can be remembered.
+// Other browsers fall back to the plain <input webkitdirectory>.
+$('folderInput').addEventListener('click', e => {
+  if (window.showDirectoryPicker) { e.preventDefault(); pickFolder(); }
+});
+$('folderInput').addEventListener('change', e => loadFiles(Array.from(e.target.files)));
+
+document.querySelectorAll('input[name="view"]').forEach(r => {
+  r.checked = r.value === view;
+  r.addEventListener('change', () => { view = r.value; store.set('view', view); render(); });
+});
+
+$('forget').addEventListener('click', async () => {
+  await idb.del('kv', 'root');
+  savedHandle = null;
+  library.forEach(b => b._coverUrl && URL.revokeObjectURL(b._coverUrl));
+  library = [];
+  render();
+});
+
+$('search').addEventListener('input', e => { query = e.target.value; render(); });
+
+render();
+
+// On load: reopen the remembered folder if the browser still allows it
+(async () => {
+  if (!window.showDirectoryPicker) return;
+  const handle = await idb.get('kv', 'root');
+  if (!handle) return;
+  savedHandle = handle;
+  try {
+    if (await handle.queryPermission({ mode: 'read' }) === 'granted') openHandle(handle, false);
+    else render();   // shows the "Reopen library" button
+  } catch (e) { render(); }
+})();
+</script>
+</body>
+</html>
