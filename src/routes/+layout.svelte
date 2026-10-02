@@ -1,9 +1,9 @@
 <script lang="ts">
   import { asset } from '$app/paths';
-  import { page } from '$app/state';
-  import { resolve } from '$app/paths';
-  import { goto } from '$app/navigation';
   import type { Snippet } from 'svelte';
+  import '#lib/styles/app.css';
+
+  let { children }: { children: Snippet } = $props();
 </script>
 
 <svelte:head>
@@ -12,7 +12,7 @@
   <meta name="description" content="Audiobook Library" />
   <meta name="text-scale" content="scale" />
 
-  <link rel="icon" type="image/svg+xml" href={asset('/favicon.svg')} />
+  <link rel="icon" type="image/svg+xml" href={asset('favicon.svg')} />
 
   <title>Audiobook Library</title>
 
@@ -20,9 +20,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
 
   <link
-    href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600&display=swap"
     rel="stylesheet"
   />
 </svelte:head>
 
-<style></style>
+{@render children()}
