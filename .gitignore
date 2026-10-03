@@ -1,55 +1,10 @@
-### Custom ###
-**/[Uu]ninclude/
-
-### Node + Vite + SvelteKit ###
-node_modules
-
-# Output
-.output
-.vercel
-.netlify
-.wrangler
-/.svelte-kit
-/dist
-/build
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Env
+node_modules
+/build
+/.svelte-kit
+/package
 .env
 .env.*
 !.env.example
-!.env.test
-
-# Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-
-### VisualStudioCode ###
-.vscode/
-.vscode/*
-*.code-workspace
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/*.code-snippets
-
-# Local History for Visual Studio Code
-.history/
-
-# Built Visual Studio Code Extensions
-*.vsix
-
-# Folder settings
-*.code-workspace
-*.code-workspace.meta
-
-### VisualStudioCode Patch ###
-# Ignore all local history of files
-.history
-.ionide
-
-.vsconfig

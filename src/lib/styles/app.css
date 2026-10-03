@@ -2,7 +2,7 @@
   font-family:
     system-ui,
     -apple-system,
-    'Segoe UI',
+    "Segoe UI",
     sans-serif;
   color: #1d2926;
   background: #e8ece4;
@@ -14,8 +14,12 @@
   --line: #c9d1c6;
   --accent: #b5760f;
   --accent-ink: #fff;
-  --serif: Georgia, 'Times New Roman', serif;
+  --serif: Georgia, "Times New Roman", serif;
   --gutter: clamp(16px, 4vw, 40px);
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --gutter-left: calc(var(--gutter) + env(safe-area-inset-left, 0px));
+  --gutter-right: calc(var(--gutter) + env(safe-area-inset-right, 0px));
   line-height: 1.5;
   color-scheme: light;
   overflow-y: scroll;

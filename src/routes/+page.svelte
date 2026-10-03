@@ -17,6 +17,13 @@
   } from '#lib/library/files.ts';
   import { COVER_CONTEXT, CoverLoader, type LoadCover } from '#lib/library/covers.ts';
   import {
+    isNativeApp,
+    isNativeFile,
+    chooseNativeLibrary,
+    refreshNativeLibrary,
+    checkNativeAccess
+  } from '#lib/library/native.ts';
+  import {
     connectLibraryFiles,
     readSavedLibrary,
     requestPersistentStorage,
@@ -30,6 +37,7 @@
     LibraryDirectory,
     LibraryFilter,
     LibraryView,
+    NativeLibrary,
     Playback
   } from '#lib/types/library.ts';
 
@@ -44,6 +52,7 @@
   let loading = $state(false);
   let error = $state('');
   let ready = $state(false);
+  let native = $state(false);
   let progress = $state<Record<string, BookProgress>>({});
   let likes = $state<Record<string, number>>({});
   let read = $state<Record<string, number>>({});
@@ -249,8 +258,46 @@
     }
   }
 
+  async function openNativeLibrary(refresh = false) {
+    const token = ++scanToken;
+    loading = true;
+    error = '';
+    try {
+      const library: NativeLibrary | null = await (refresh
+        ? refreshNativeLibrary()
+        : chooseNativeLibrary());
+      if (!library || token !== scanToken) return;
+      const files = libraryFiles(library.files);
+      const catalog = buildLibrary(files);
+      const saved = await saveLibrary(
+        null,
+        {
+          name: library.name,
+          files: files.map((file) => ({ file, path: file.webkitRelativePath }))
+        },
+        catalog
+      );
+      if (token !== scanToken) return;
+      savedHandle = null;
+      accessNeeded = false;
+      connectLibraryFiles(null);
+      loadBooks(catalog, library.name);
+      if (!saved) error = 'Your library is open, but could not be remembered on this device.';
+    } catch {
+      if (token === scanToken)
+        error =
+          'This folder could not be opened. Check that it is available, then choose it again.';
+    } finally {
+      if (token === scanToken) loading = false;
+    }
+  }
+
   async function chooseFolder() {
     error = '';
+    if (isNativeApp()) {
+      await openNativeLibrary();
+      return;
+    }
     const picker = (
       window as Window & {
         showDirectoryPicker?: (options: { mode: 'read' }) => Promise<LibraryDirectory>;
@@ -298,7 +345,7 @@
   async function ensureLibraryAccess() {
     if (!accessNeeded) return true;
     if (!savedHandle) {
-      error = 'This browser needs you to choose the folder again to play its original files.';
+      error = 'Choose your folder again to play its original files.';
       await chooseFolder();
       return false;
     }
@@ -332,7 +379,8 @@
 
   async function refreshLibrary() {
     if (await ensureLibraryAccess()) {
-      if (savedHandle) await openHandle(savedHandle);
+      if (isNativeApp()) await openNativeLibrary(true);
+      else if (savedHandle) await openHandle(savedHandle);
       else await chooseFolder();
     }
   }
@@ -347,6 +395,20 @@
   }
 
   async function checkFolderAccess() {
+    if (native && document.visibilityState === 'visible' && libraryName && !loading) {
+      const token = scanToken;
+      try {
+        const granted = await checkNativeAccess();
+        if (token !== scanToken || accessNeeded === !granted) return;
+        accessNeeded = !granted;
+        coverLoader.dispose();
+        coverLoader = new CoverLoader(granted);
+        for (const book of books) book.coverUrl = undefined;
+      } catch {
+        if (token === scanToken) accessNeeded = true;
+      }
+      return;
+    }
     if (document.visibilityState !== 'visible' || !savedHandle || loading) return;
     // Returning from the background can expire a browser's one-time grant.
     if (
@@ -368,6 +430,7 @@
   }
 
   onMount(() => {
+    native = isNativeApp();
     const savedView = store.get<LibraryView>('view', 'series');
     view = ['series', 'folders', 'az'].includes(savedView) ? savedView : 'series';
     progress = store.get('progress', {});
@@ -384,6 +447,14 @@
       savedHandle = handle ?? null;
       connectLibraryFiles(savedHandle);
       accessNeeded = catalog ? catalog.version === 2 : !!handle;
+      if (native && catalog?.books.some((book) => book.files.some(isNativeFile))) {
+        try {
+          accessNeeded = !(await checkNativeAccess());
+        } catch {
+          accessNeeded = true;
+        }
+        if (token !== scanToken) return;
+      }
       if (catalog) loadBooks(catalog.books, catalog.name, !accessNeeded);
       else if (legacy) {
         const files = restoreLibraryFiles(legacy);
@@ -457,7 +528,7 @@
           title={libraryName ? 'No audiobooks found' : 'Your next story starts here'}
           message={libraryName
             ? 'Choose a folder containing audio files to fill your library.'
-            : 'Choose your audiobook folder. Audio files in its subfolders are included; your files stay on your computer.'}
+            : 'Choose your audiobook folder. Audio files in its subfolders are included; your files stay on your device.'}
           actionLabel="Choose folder"
           onaction={chooseFolder}
         />
@@ -523,15 +594,15 @@
 <style>
   .library {
     min-height: 100dvh;
-    padding-bottom: 32px;
+    padding-bottom: calc(32px + var(--safe-area-bottom));
   }
   .with-player {
-    padding-bottom: 120px;
+    padding-bottom: calc(120px + var(--safe-area-bottom));
   }
   main {
     max-width: 1400px;
     margin: 0 auto;
-    padding: 28px var(--gutter);
+    padding: 28px var(--gutter-right) 28px var(--gutter-left);
   }
   .library-heading {
     display: flex;
@@ -586,7 +657,7 @@
       padding-top: 20px;
     }
     .with-player {
-      padding-bottom: 150px;
+      padding-bottom: calc(150px + var(--safe-area-bottom));
     }
     .library-heading {
       margin-bottom: 24px;

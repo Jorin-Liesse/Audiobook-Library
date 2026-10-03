@@ -1,0 +1,80 @@
+name: Build Android
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Build Android
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      NDK_VERSION: "28.2.13676358"
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager "ndk;$NDK_VERSION" "platforms;android-36" "build-tools;36.0.0"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: android
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Check frontend
+        run: npm run check
+
+      - name: Initialize Android project
+        if: ${{ hashFiles('src-tauri/gen/android/gradlew') == '' }}
+        run: npm run tauri -- android init --ci --skip-targets-install
+
+      - name: Configure local media access
+        run: node scripts/configure-android-network.mjs --android
+
+      # Android automatically signs debug APKs with a generated debug key.
+      - name: Build Android debug APK
+        run: npm run tauri -- android build --ci --debug --apk
+
+      - name: Upload Android debug APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: audiobook-library-android-debug
+          path: src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

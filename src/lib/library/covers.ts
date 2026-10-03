@@ -1,7 +1,8 @@
-import type { Book } from '#lib/types/library.ts';
-import { idb, loadLibraryFile } from './storage.ts';
+import type { Book } from "#lib/types/library.ts";
+import { idb, loadLibraryFile } from "./storage.ts";
+import { isNativeFile, nativeFileUrl } from "./native.ts";
 
-export const COVER_CONTEXT = Symbol('cover-loader');
+export const COVER_CONTEXT = Symbol("cover-loader");
 export type LoadCover = (book: Book) => Promise<void>;
 interface CoverResult {
   url: string | null;
@@ -12,33 +13,38 @@ interface CachedCover {
   author?: string;
 }
 
-async function readTags(file: File) {
+async function readTags(file: File | string) {
   try {
-    const { default: mediaTags } = await import('jsmediatags/dist/jsmediatags.min.js');
-    return await new Promise<{ blob: Blob | null; author?: string }>((resolve) => {
-      // A damaged tag must not permanently occupy one of the four queue slots.
-      const timeout = window.setTimeout(() => resolve({ blob: null }), 15000);
-      const finish = (result: { blob: Blob | null; author?: string }) => {
-        clearTimeout(timeout);
-        resolve(result);
-      };
-      try {
-        mediaTags.read(file, {
-          onSuccess: ({ tags }) => {
-            const picture = tags.picture;
-            finish({
-              blob: picture?.data?.length
-                ? new Blob([new Uint8Array(picture.data)], { type: picture.format || 'image/jpeg' })
-                : null,
-              author: tags.artist
-            });
-          },
-          onError: () => finish({ blob: null })
-        });
-      } catch {
-        finish({ blob: null });
-      }
-    });
+    const { default: mediaTags } =
+      await import("jsmediatags/dist/jsmediatags.min.js");
+    return await new Promise<{ blob: Blob | null; author?: string }>(
+      (resolve) => {
+        // A damaged tag must not permanently occupy one of the four queue slots.
+        const timeout = window.setTimeout(() => resolve({ blob: null }), 15000);
+        const finish = (result: { blob: Blob | null; author?: string }) => {
+          clearTimeout(timeout);
+          resolve(result);
+        };
+        try {
+          mediaTags.read(file, {
+            onSuccess: ({ tags }) => {
+              const picture = tags.picture;
+              finish({
+                blob: picture?.data?.length
+                  ? new Blob([new Uint8Array(picture.data)], {
+                      type: picture.format || "image/jpeg",
+                    })
+                  : null,
+                author: tags.artist,
+              });
+            },
+            onError: () => finish({ blob: null }),
+          });
+        } catch {
+          finish({ blob: null });
+        }
+      },
+    );
   } catch {
     return { blob: null };
   }
@@ -86,21 +92,32 @@ export class CoverLoader {
   private async find(book: Book): Promise<CoverResult> {
     const sources = [book.image, ...book.files.slice(0, 2), book.parentImage];
     const cacheKey =
+      // Retry Android covers cached as missing by the old custom protocol.
+      (sources.some(
+        (file) => file && isNativeFile(file) && file.protocol === "library",
+      )
+        ? "android-http-v1:"
+        : "") +
       book.key +
-      ':' +
+      ":" +
       JSON.stringify(
         sources.map((file) =>
-          file ? [file.webkitRelativePath, file.size, file.lastModified] : null
-        )
+          file ? [file.webkitRelativePath, file.size, file.lastModified] : null,
+        ),
       );
-    const cached = await idb.get<CachedCover>('covers', cacheKey);
+    const cached = await idb.get<CachedCover>("covers", cacheKey);
     let blob = cached?.blob ?? null;
     let author = cached?.author;
-    if (!cached && this.readFiles && book.image) blob = await loadLibraryFile(book.image);
+    if (!cached && this.readFiles && book.image)
+      blob = await loadLibraryFile(book.image);
     if (!cached && !blob && this.readFiles) {
       for (const file of book.files.slice(0, 2)) {
         if (this.disposed) return { url: null };
-        const tags = await readTags(await loadLibraryFile(file));
+        const tags = await readTags(
+          isNativeFile(file)
+            ? await nativeFileUrl(file)
+            : await loadLibraryFile(file),
+        );
         author ||= tags.author;
         if (tags.blob) {
           blob = tags.blob;
@@ -112,7 +129,8 @@ export class CoverLoader {
       blob = await loadLibraryFile(book.parentImage);
     if (this.disposed) return { url: null };
     // Remember missing art too, so those books don't re-read tags on every launch.
-    if (!cached && this.readFiles) void idb.set('covers', cacheKey, { blob, author });
+    if (!cached && this.readFiles)
+      void idb.set("covers", cacheKey, { blob, author });
     const url = blob ? URL.createObjectURL(blob) : null;
     if (url) this.urls.add(url);
     return { url, author };

@@ -1,47 +1,44 @@
 {
   "name": "audiobook-library",
-  "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "",
   "type": "module",
   "imports": {
-    "#lib/*": "./src/lib/*",
-    "#components/*": "./src/lib/components/*",
-    "#types/*": "./src/lib/types/*"
+    "#lib/*": "./src/lib/*"
   },
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "node scripts/configure-android-network.mjs && vite build",
     "preview": "vite preview",
-    "deploy": "gh workflow run deploy.yml",
     "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project src/service-worker/tsconfig.json",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "test": "node --test test/*.test.ts",
     "lint": "prettier --check . && eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "tauri": "tauri"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "jsmediatags": "^3.9.7"
   },
   "devDependencies": {
-    "@eslint/compat": "^2.1.0",
     "@eslint/js": "^10.0.1",
-    "@sveltejs/adapter-auto": "^8.0.0",
     "@sveltejs/adapter-static": "^4.0.0",
     "@sveltejs/kit": "^3.0.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
-    "@types/node": "^25",
-    "eslint": "^10.4.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-svelte": "^3.17.1",
-    "gh-pages": "^6.3.0",
-    "globals": "^17.6.0",
-    "prettier": "^3.8.3",
-    "prettier-plugin-svelte": "^3.5.2",
-    "svelte": "^5.55.8",
-    "svelte-check": "^4.4.8",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4",
-    "vite": "^8.0.13"
-  },
-  "dependencies": {
-    "jsmediatags": "^3.9.7"
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^24.19.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-svelte": "^3.23.0",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.56.3",
+    "svelte-check": "^4.6.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vite": "^8.0.16"
   }
 }

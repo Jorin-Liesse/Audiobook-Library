@@ -1,7 +1,32 @@
-import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
-import svelteOptions from './svelte-options.js';
+import { defineConfig } from "vite";
+import { sveltekit } from "@sveltejs/kit/vite";
+import process from "node:process";
+import svelteOptions from "./svelte-options.js";
+const host = process.env.TAURI_DEV_HOST;
 
-export default defineConfig({
-  plugins: [sveltekit(svelteOptions)]
-});
+// https://vite.dev/config/
+export default defineConfig(() => ({
+  plugins: [sveltekit(svelteOptions)],
+
+  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
+  //
+  // 1. prevent Vite from obscuring rust errors
+  clearScreen: false,
+  // 2. tauri expects a fixed port, fail if that port is not available
+  server: {
+    port: 1420,
+    strictPort: true,
+    host: host || "127.0.0.1",
+    hmr: host
+      ? {
+          protocol: "ws",
+          host,
+          port: 1421,
+        }
+      : undefined,
+    watch: {
+      // 3. tell Vite to ignore watching `src-tauri`
+      ignored: ["**/src-tauri/**"],
+    },
+  },
+}));

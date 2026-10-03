@@ -124,7 +124,7 @@
     z-index: 5;
     background: var(--bg);
     border-bottom: 1px solid var(--line);
-    padding: 14px var(--gutter);
+    padding: calc(14px + var(--safe-area-top)) var(--gutter-right) 14px var(--gutter-left);
   }
   .inner {
     max-width: 1320px;
@@ -260,7 +260,7 @@
   }
   @media (max-width: 640px) {
     .toolbar {
-      padding: 8px var(--gutter);
+      padding: calc(8px + var(--safe-area-top)) var(--gutter-right) 8px var(--gutter-left);
     }
     .inner {
       gap: 8px;

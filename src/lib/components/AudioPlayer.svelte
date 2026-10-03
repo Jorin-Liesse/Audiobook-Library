@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
   import { stripExt, tidy } from '#lib/library/files.ts';
-  import { loadLibraryFile } from '#lib/library/storage.ts';
+  import { libraryAudioSource } from '#lib/library/storage.ts';
   import BookCover from './BookCover.svelte';
   import Icon from './Icon.svelte';
 
@@ -98,6 +98,7 @@
     if (!element) return;
     const source = selected.files[command.index];
     let url: string | undefined;
+    let release: (() => void) | undefined;
     let cancelled = false;
     let pending: Promise<void> | undefined;
     playing = false;
@@ -105,9 +106,13 @@
     duration = 0;
     error = '';
     lastSave = 0;
-    const attach = (file: File) => {
-      if (cancelled) return;
-      url = URL.createObjectURL(file);
+    const attach = (source: Awaited<ReturnType<typeof libraryAudioSource>>) => {
+      if (cancelled) {
+        source.release();
+        return;
+      }
+      url = source.url;
+      release = source.release;
       active = { book: selected, command, url, ready: false };
       element.src = url;
       element.playbackRate = 1;
@@ -115,7 +120,7 @@
     };
     prepareSource = () => {
       if (!pending) {
-        pending = loadLibraryFile(source)
+        pending = libraryAudioSource(source)
           .then(attach)
           .catch((failure) => {
             pending = undefined;
@@ -134,7 +139,7 @@
       element.pause();
       element.removeAttribute('src');
       element.load();
-      if (url) URL.revokeObjectURL(url);
+      release?.();
     };
   });
 
@@ -193,7 +198,7 @@
   onended={ended}
   onerror={() => {
     if (active && audio?.getAttribute('src'))
-      error = 'This audio file cannot be played in this browser.';
+      error = 'This audio file cannot be played. Check folder access and the audio format.';
   }}
 ></audio>
 <aside class="player" aria-label="Audiobook player">
@@ -253,7 +258,7 @@
     z-index: 10;
     border-top: 1px solid var(--line);
     background: var(--surface);
-    padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom, 0px));
+    padding: 12px var(--gutter-right) calc(12px + var(--safe-area-bottom)) var(--gutter-left);
   }
   .inner {
     max-width: 1320px;
