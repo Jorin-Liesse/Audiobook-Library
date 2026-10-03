@@ -64,6 +64,10 @@ jobs:
         if: ${{ hashFiles('src-tauri/gen/android/gradlew') == '' }}
         run: npm run tauri -- android init --ci --skip-targets-install
 
+      # Apply custom launcher icons after initialization creates the Android resources.
+      - name: Generate app icons
+        run: npm run tauri -- icon static/favicon.png
+
       - name: Configure local media access
         run: node scripts/configure-android-network.mjs --android
 
