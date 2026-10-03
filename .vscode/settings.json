@@ -31,7 +31,8 @@
     "workspace.code-workspace": true,
     "WorkFiles": true,
     "svelte.config.js": true,
-    "vite.config.js": true
+    "vite.config.js": true,
+    "scripts": true,
   },
 
   "svelte.enable-ts-plugin": true
