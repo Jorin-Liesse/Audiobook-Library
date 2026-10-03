@@ -1,0 +1,169 @@
+name: Release Android
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag (for example, v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Build, sign, and release Android
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      NDK_VERSION: "28.2.13676358"
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Validate release version and signing secrets
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const { version } = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          if (process.env.RELEASE_TAG !== `v${version}`) {
+            throw new Error('Release tag must match v + the version in src-tauri/tauri.conf.json.');
+          }
+          for (const name of ['ANDROID_KEY_BASE64', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD', 'ANDROID_KEYSTORE_PASSWORD']) {
+            if (!process.env[name]) throw new Error(`Missing repository secret: ${name}`);
+          }
+          NODE
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager "ndk;$NDK_VERSION" "platforms;android-36" "build-tools;36.0.0"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: android-release
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Check frontend
+        run: npm run check
+
+      - name: Initialize Android project
+        if: ${{ hashFiles('src-tauri/gen/android/gradlew') == '' }}
+        run: npm run tauri -- android init --ci --skip-targets-install
+
+      - name: Generate app icons
+        run: npm run tauri -- icon static/favicon.png
+
+      - name: Configure local media access
+        run: node scripts/configure-android-network.mjs --android
+
+      - name: Configure Android signing
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+        run: |
+          umask 077
+          printf '%s' "$ANDROID_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.jks"
+          node scripts/configure-android-signing.mjs
+
+      - name: Build signed Android APK and app bundle
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/android-release.jks
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: npm run tauri -- android build --ci --apk --aab
+
+      - name: Remove signing keystore
+        if: ${{ always() }}
+        run: rm -f -- "$RUNNER_TEMP/android-release.jks"
+
+      - name: Verify signatures and collect release files
+        env:
+          LC_ALL: C
+        run: |
+          shopt -s nullglob globstar
+          apks=(src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk)
+          bundles=(src-tauri/gen/android/app/build/outputs/bundle/**/*.aab)
+          if (( ${#apks[@]} == 0 || ${#bundles[@]} == 0 )); then
+            echo "::error::Expected both release APKs and app bundles."
+            exit 1
+          fi
+          mkdir -p release-assets
+          for apk in "${apks[@]}"; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$apk"
+            cp "$apk" "release-assets/audiobook-library-$RELEASE_TAG-$(basename "$apk")"
+          done
+          for bundle in "${bundles[@]}"; do
+            jarsigner -verify "$bundle" | grep -F 'jar verified.'
+            cp "$bundle" "release-assets/audiobook-library-$RELEASE_TAG-$(basename "$bundle")"
+          done
+          (cd release-assets && sha256sum *.apk *.aab > SHA256SUMS.txt)
+
+      - name: Upload signed Android artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: audiobook-library-android-${{ env.RELEASE_TAG }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            flags=()
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              flags+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --verify-tag --title "Audiobook Library $RELEASE_TAG" \
+              --generate-notes "${flags[@]}"
+          else
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          fi
