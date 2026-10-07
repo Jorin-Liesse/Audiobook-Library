@@ -14,6 +14,7 @@
     playback,
     onprogress,
     onfinish,
+    onplay,
     onclose,
     onaccess,
   }: {
@@ -22,6 +23,7 @@
     onprogress: (book: Book, progress: BookProgress) => void;
     onchapter: (index: number) => void;
     onfinish: (book: Book) => void;
+    onplay: () => void;
     onclose: () => void;
     onaccess: () => Promise<boolean>;
   } = $props();
@@ -34,7 +36,10 @@
   let snapshot: AndroidPlayback | null = null;
   let generation = 0;
   let finished = false;
+  let attached = false;
   let lastSave = 0;
+  let lastSavedPosition = 0;
+  let lastSavedIndex = 0;
   const fraction = $derived(
     duration > 0 ? Math.max(0, Math.min(100, (position / duration) * 100)) : 0,
   );
@@ -65,9 +70,12 @@
       index >= selected.files.length ||
       !Number.isFinite(time) ||
       time < 0 ||
-      (time === 0 && index === 0)
+      (index === lastSavedIndex &&
+        Math.abs(time - lastSavedPosition) < 0.001)
     )
       return;
+    lastSavedPosition = time;
+    lastSavedIndex = index;
     onprogress(selected, {
       i: index,
       t: time,
@@ -78,6 +86,7 @@
   }
 
   export async function flush() {
+    if (!attached) return;
     const selected = book;
     persist(selected, snapshot);
     try {
@@ -112,7 +121,7 @@
 
   async function refresh() {
     const token = generation;
-    if (busy) return;
+    if (busy || !attached) return;
     try {
       const state = await androidAudio.status();
       if (token === generation) apply(state);
@@ -120,31 +129,6 @@
       if (token === generation)
         error =
           "The Android audio service could not be reached. Tap Play to try again.";
-    }
-  }
-
-  async function resume() {
-    if (busy) return;
-    const token = generation;
-    busy = true;
-    try {
-      if (!(await onaccess()) || token !== generation) return;
-      const state = await androidAudio.status();
-      if (token !== generation) return;
-      finished = false;
-      const result =
-        state.active && state.bookKey === book.key && !state.ended
-          ? await androidAudio.play()
-          : await androidAudio.load(book, currentIndex, position);
-      if (token === generation) apply(result);
-    } catch (failure) {
-      if (token === generation)
-        error =
-          failure instanceof Error
-            ? failure.message
-            : "The audiobook could not be opened. Check folder access.";
-    } finally {
-      if (token === generation) busy = false;
     }
   }
 
@@ -184,12 +168,15 @@
     const selected = book;
     const token = ++generation;
     position = command.startTime;
+    lastSavedPosition = command.startTime;
+    lastSavedIndex = command.index;
     currentIndex = command.index;
     duration = 0;
     playing = false;
     error = "";
     busy = true;
     snapshot = null;
+    attached = false;
     finished = false;
     lastSave = 0;
     void (async () => {
@@ -198,13 +185,19 @@
         if (token !== generation) return;
         if (command.autoplay) {
           if (!(await onaccess()) || token !== generation) return;
+          attached = true;
           const result = await androidAudio.load(
             selected,
             command.index,
             command.startTime,
           );
           if (token === generation) apply(result);
-        } else if (state.bookKey === selected.key && !state.ended) {
+        } else if (
+          state.bookKey === selected.key &&
+          state.playing &&
+          !state.ended
+        ) {
+          attached = true;
           // Reattach to a running service without reloading or seeking its audio.
           apply(state);
         } else if (state.active || state.ended) {
@@ -259,7 +252,7 @@
           aria-label={playing ? "Pause" : "Play"}
           onclick={() => {
             if (playing) void pause();
-            else void resume();
+            else onplay();
           }}><Icon name={playing ? "pause" : "play"} size={18} /></button
         >
         <input

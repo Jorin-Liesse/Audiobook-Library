@@ -1,0 +1,3 @@
+[default]
+description = "Authorize access to the user's hidden Google Drive app-data folder."
+permissions = ["allow-authorize", "allow-invalidate"]

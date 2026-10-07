@@ -1,6 +1,8 @@
 ﻿<script lang="ts">
-  import { onMount, setContext } from 'svelte';
+  import { onMount, setContext, tick } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
+  import { LibrarySync, type SyncStatus } from '#lib/library/sync.ts';
+  import DriveSync from '#lib/components/DriveSync.svelte';
   import BookCard from '#lib/components/BookCard.svelte';
   import BookSection from '#lib/components/BookSection.svelte';
   import FolderTile from '#lib/components/FolderTile.svelte';
@@ -54,9 +56,14 @@
   let error = $state('');
   let ready = $state(false);
   let native = $state(false);
-  let progress = $state<Record<string, BookProgress>>({});
-  let likes = $state<Record<string, number>>({});
-  let read = $state<Record<string, number>>({});
+  let sync: LibrarySync | undefined;
+  let syncStatus = $state<SyncStatus>({
+    account: null,
+    busy: false,
+    connected: false,
+    message: '',
+    lastSynced: null
+  });
   let playback = $state<Playback | null>(null);
   let player = $state<{ flush: () => void | Promise<void> }>();
   let folderInput: HTMLInputElement;
@@ -123,40 +130,33 @@
   });
 
   function savedProgress(book: Book) {
-    const saved = progress[book.key];
-    if (
-      !saved ||
-      !Number.isInteger(saved.i) ||
-      saved.i < 0 ||
-      saved.i >= book.files.length ||
-      !Number.isFinite(saved.t) ||
-      saved.t < 0
-    )
-      return null;
-    return saved;
+    return sync?.get(book).progress ?? null;
   }
 
   function hydrate(book: Book) {
-    const saved = savedProgress(book);
+    const state = sync?.get(book);
+    const saved = state?.progress;
     book.started = !!saved;
-    book.progress = saved
-      ? Math.min(
-          100,
-          Math.max(
-            0,
-            Math.round((Number.isFinite(saved.p) ? saved.p : saved.i / book.files.length) * 100)
-          )
-        )
-      : 0;
-    book.liked = !!likes[book.key];
-    book.read = !!read[book.key];
+    book.progress = saved ? Math.min(100, Math.max(0, Math.round(saved.p * 100))) : 0;
+    book.liked = state?.liked ?? false;
+    book.read = state?.read ?? false;
     return book;
+  }
+
+  function syncChanged() {
+    for (const book of books) hydrate(book);
   }
 
   function startBook(book: Book, index: number, startTime = 0, autoplay = true) {
     if (index < 0 || index >= book.files.length) return;
     player?.flush();
-    playback = { bookId: book.id, index, startTime, autoplay, token: ++playbackToken };
+    playback = {
+      bookId: book.id,
+      index,
+      startTime,
+      autoplay,
+      token: ++playbackToken
+    };
   }
 
   async function openBook(book: Book) {
@@ -171,29 +171,28 @@
     await player?.flush();
     if (playback !== closing) return;
     playback = null;
-    if (isAndroidApp()) void androidAudio.stop().catch(() => {
-      error = 'The Android player could not be stopped. Use the media notification to pause playback.';
-    });
+    if (isAndroidApp())
+      await androidAudio.stop().catch(() => {
+        error =
+          'The Android player could not be stopped. Use the media notification to pause playback.';
+      });
   }
 
   function saveProgress(book: Book, position: BookProgress) {
-    progress[book.key] = position;
-    store.set('progress', progress);
+    sync?.progress(book, position);
     store.set('last', book.key);
-    book.started = true;
-    book.progress = Math.max(1, Math.min(100, Math.round(position.p * 100)));
   }
 
   function finishBook(book: Book) {
-    delete progress[book.key];
-    read[book.key] = 1;
-    book.started = false;
-    book.progress = 0;
-    book.read = true;
-    store.set('progress', progress);
-    store.set('read', read);
+    sync?.finish(book);
     store.set('last', book.key);
-    playback = { bookId: book.id, index: 0, startTime: 0, autoplay: false, token: ++playbackToken };
+    playback = {
+      bookId: book.id,
+      index: 0,
+      startTime: 0,
+      autoplay: false,
+      token: ++playbackToken
+    };
   }
 
   function toggleMark(id: string, kind: 'liked' | 'read') {
@@ -203,11 +202,7 @@
       const saved = savedProgress(book);
       startBook(book, saved?.i ?? 0, saved?.t ?? 0, false);
     }
-    const map = kind === 'liked' ? likes : read;
-    if (map[book.key]) delete map[book.key];
-    else map[book.key] = 1;
-    book[kind] = !!map[book.key];
-    store.set(kind === 'liked' ? 'likes' : 'read', map);
+    sync?.mark(book, kind, !book[kind]);
   }
 
   function loadBooks(catalog: Book[], name: string, canRead = true) {
@@ -215,6 +210,7 @@
     playback = null;
     coverLoader.dispose();
     coverLoader = new CoverLoader(canRead);
+    sync?.migrate(catalog);
     books = catalog.map(hydrate);
     folderPath = [];
     libraryName = name;
@@ -337,7 +333,10 @@
       null,
       {
         name,
-        files: files.map((file) => ({ file, path: file.webkitRelativePath || file.name }))
+        files: files.map((file) => ({
+          file,
+          path: file.webkitRelativePath || file.name
+        }))
       },
       catalog
     );
@@ -441,9 +440,17 @@
     native = isNativeApp();
     const savedView = store.get<LibraryView>('view', 'series');
     view = ['series', 'folders', 'az'].includes(savedView) ? savedView : 'series';
-    progress = store.get('progress', {});
-    likes = store.get('likes', {});
-    read = store.get('read', {});
+    sync = new LibrarySync(
+      syncChanged,
+      (status) => {
+        syncStatus = status;
+      },
+      async () => {
+        await closePlayer();
+        await tick();
+      }
+    );
+    sync.start();
     ready = true;
     // Run independently so storage permission cannot delay catalogue restoration.
     void requestPersistentStorage();
@@ -466,19 +473,34 @@
         }
         if (token !== scanToken) return;
       }
+      if (catalog) sync?.migrate(catalog.books);
       if (catalog && nativePlayback?.bookKey) {
         const book = catalog.books.find((item) => item.key === nativePlayback.bookKey);
         const index = nativePlayback.index ?? 0;
         const position = nativePlayback.position ?? 0;
-        if (book && Number.isInteger(index) && index >= 0 && index < book.files.length
-          && Number.isFinite(position) && position >= 0) {
-          if (nativePlayback.ended) finishBook(book);
-          else saveProgress(book, {
-            i: index,
-            t: position,
-            p: (index + ((nativePlayback.duration ?? 0) > 0
-              ? Math.min(1, position / nativePlayback.duration!) : 0)) / book.files.length
-          });
+        if (
+          book &&
+          Number.isInteger(index) &&
+          index >= 0 &&
+          index < book.files.length &&
+          Number.isFinite(position) &&
+          position >= 0
+        ) {
+          sync?.recover(
+            book,
+            {
+              i: index,
+              t: position,
+              p:
+                (index +
+                  ((nativePlayback.duration ?? 0) > 0
+                    ? Math.min(1, position / nativePlayback.duration!)
+                    : 0)) /
+                book.files.length
+            },
+            nativePlayback.updatedAt ?? 0,
+            !!nativePlayback.ended
+          );
         }
       }
       if (catalog) loadBooks(catalog.books, catalog.name, !accessNeeded);
@@ -503,6 +525,7 @@
       }
     })();
     return () => {
+      sync?.dispose();
       document.removeEventListener('visibilitychange', checkFolderAccess);
       ++scanToken;
       coverLoader.dispose();
@@ -535,6 +558,18 @@
     busy={loading}
   />
   <main>
+    <DriveSync
+      status={syncStatus}
+      onconnect={() => {
+        void sync?.connect();
+      }}
+      onsync={() => {
+        void sync?.syncNow();
+      }}
+      ondisconnect={() => {
+        void sync?.disconnect();
+      }}
+    />
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if loading && !books.length}
       <LibraryEmptyState
@@ -611,6 +646,9 @@
       onprogress={saveProgress}
       onchapter={(index) => startBook(selectedBook, index)}
       onfinish={finishBook}
+      onplay={() => {
+        void openBook(selectedBook);
+      }}
       onclose={closePlayer}
       onaccess={ensureLibraryAccess}
     />

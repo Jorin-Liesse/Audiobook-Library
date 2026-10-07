@@ -10,6 +10,7 @@
     onprogress: (book: Book, progress: BookProgress) => void;
     onchapter: (index: number) => void;
     onfinish: (book: Book) => void;
+    onplay: () => void;
     onclose: () => void;
     onaccess: () => Promise<boolean>;
   } = $props();

@@ -11,6 +11,7 @@
     onprogress,
     onchapter,
     onfinish,
+    onplay,
     onclose,
     onaccess
   }: {
@@ -19,6 +20,7 @@
     onprogress: (book: Book, progress: BookProgress) => void;
     onchapter: (index: number) => void;
     onfinish: (book: Book) => void;
+    onplay: () => void;
     onclose: () => void;
     onaccess: () => Promise<boolean>;
   } = $props();
@@ -27,8 +29,14 @@
   let position = $state(0);
   let duration = $state(0);
   let error = $state('');
-  let active: { book: Book; command: Playback; url: string; ready: boolean } | null = null;
+  let active: {
+    book: Book;
+    command: Playback;
+    url: string;
+    ready: boolean;
+  } | null = null;
   let lastSave = 0;
+  let lastSavedPosition = 0;
   let prepareSource: (() => Promise<void>) | null = null;
   const fraction = $derived(
     duration > 0 ? Math.max(0, Math.min(100, (position / duration) * 100)) : 0
@@ -53,15 +61,16 @@
     if (
       !audio ||
       !active?.ready ||
+      Math.abs(audio.currentTime - lastSavedPosition) < 0.001 ||
       audio.ended ||
-      audio.currentSrc !== active.url ||
-      (audio.currentTime <= 0 && active.command.index === 0)
+      audio.currentSrc !== active.url
     )
       return;
     const within =
       Number.isFinite(audio.duration) && audio.duration > 0
         ? Math.min(1, audio.currentTime / audio.duration)
         : 0;
+    lastSavedPosition = audio.currentTime;
     onprogress(active.book, {
       i: active.command.index,
       t: audio.currentTime,
@@ -103,6 +112,7 @@
     let pending: Promise<void> | undefined;
     playing = false;
     position = command.startTime;
+    lastSavedPosition = command.startTime;
     duration = 0;
     error = '';
     lastSave = 0;
@@ -219,7 +229,7 @@
           aria-label={playing ? 'Pause' : 'Play'}
           onclick={() => {
             if (playing) audio?.pause();
-            else void resume();
+            else onplay();
           }}><Icon name={playing ? 'pause' : 'play'} size={18} /></button
         >
         <input

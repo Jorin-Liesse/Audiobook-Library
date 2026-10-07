@@ -1,0 +1,7 @@
+{
+  "identifier": "google-drive",
+  "description": "Google Drive app-data authorization on Android",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": ["google-drive:default"]
+}

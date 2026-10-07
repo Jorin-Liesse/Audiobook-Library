@@ -24,8 +24,25 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.8"
+url = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-native-audio = { path = "tauri-plugin-native-audio" }
+tauri-plugin-google-drive = { path = "tauri-plugin-google-drive" }
 tauri-plugin-android-fs = { version = "=29.0.0", default-features = false }
 percent-encoding = "2"
 http-range = "0.1.5"
