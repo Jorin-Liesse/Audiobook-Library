@@ -10,3 +10,8 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vscode
 *.code-workspace
+
+# Android signing keys and credentials (at any location in this repository)
+*.jks
+*.keystore
+keystore.properties
