@@ -10,6 +10,8 @@ Use **one Google Cloud project for every platform** so they access the same app-
 2. Configure the Google Auth Platform consent screen (branding, audience, and required privacy information). Add the drive.appdata scope. While the project is in Testing, add every account you test with as a test user. Google may expire testing authorizations; publish the consent configuration when ready for production.
 3. Create OAuth clients for the platforms you ship, all inside that project.
 
+Copy `.env.example` to `.env` and fill in your platform client IDs. Both Vite and the desktop Rust build read `.env`; `.env.local` overrides it, and environment variables override the same keys in either file. Restart development or rebuild the native app after changing OAuth settings.
+
 ### Browser / PWA
 
 Create a **Web application** OAuth client. Add each exact app origin, including its port, to Authorized JavaScript origins. For local development, use http://localhost:1420 and http://127.0.0.1:1420 if you use both. Production must use HTTPS.
@@ -22,16 +24,20 @@ Browser authorization uses Google Identity Services' token flow. Tokens stay in 
 
 Create an **Android** OAuth client with the generated application's actual applicationId/package name and its SHA-1 signing certificate fingerprint. Check src-tauri/gen/android/app/build.gradle.kts for applicationId; the Tauri identifier is com.sapodillagames.audiobook-library, but the generated Android package can normalize punctuation. Register debug, release, and Google Play signing certificates as appropriate, using clients in the same project.
 
+`VITE_GOOGLE_ANDROID_CLIENT_ID` can be kept in `.env` as a reference to the Android OAuth registration. Google's native AuthorizationClient does not accept an Android client ID parameter: Play Services identifies the installed app by its package name and signing certificate, and selects the matching client registered in Google Cloud. Setting this variable does not replace registering the correct package and SHA-1.
+
 The google-drive Tauri plugin uses Google's native AuthorizationClient and only requests app-data access. Google Play Services handles the account picker, consent, and renewal. No client secret or server authorization code is needed for Android. Test on a device/emulator with Google Play Services. Regenerate/build through Tauri so the new local plugin is included in the Android project.
 
 ### Desktop (Windows, macOS, Linux)
 
-Create a **Desktop app** OAuth client. Before running the Tauri build/dev command, set these build environment variables to the values in its downloaded OAuth configuration:
+Create a **Desktop app** OAuth client. Set these values in the project-root `.env` using its downloaded OAuth configuration:
 
-- GOOGLE_DESKTOP_CLIENT_ID
-- GOOGLE_DESKTOP_CLIENT_SECRET, if present in the desktop client configuration
+```dotenv
+VITE_GOOGLE_DESKTOP_CLIENT_ID=your-desktop-client-id.apps.googleusercontent.com
+GOOGLE_DESKTOP_CLIENT_SECRET=your-desktop-client-secret
+```
 
-For PowerShell, set each with $env:GOOGLE_DESKTOP_CLIENT_ID = 'your-client-id' and $env:GOOGLE_DESKTOP_CLIENT_SECRET = 'your-desktop-client-secret', then run npm run tauri -- build (or dev). Rust reads these at build time; Vite's .env file is only used for the web client ID. Installed-app credentials are public application identifiers and cannot be treated as a confidential server secret.
+Include `GOOGLE_DESKTOP_CLIENT_SECRET` if the downloaded desktop configuration contains `client_secret`. Keep the secret without a `VITE_` prefix so it is not exposed to frontend code. The Rust build loads these values automatically for both `npm run tauri -- dev` and `npm run tauri -- build`. It watches `.env`, `.env.local`, and the corresponding environment variables for changes. The legacy `GOOGLE_DESKTOP_CLIENT_ID` is still accepted as a fallback when `VITE_GOOGLE_DESKTOP_CLIENT_ID` is blank or absent. Installed-app credentials are public application identifiers and cannot be treated as a confidential server secret.
 
 Desktop sign-in opens the system browser and uses PKCE, a random state value, and a temporary 127.0.0.1 listener on a random port. The listener shuts down after sign-in or three minutes. Refresh tokens remain in the OS credential store (Windows Credential Manager, macOS Keychain, or Linux Secret Service), outside browser storage. Linux builds need a working Secret Service/DBus environment. Disconnect removes the local desktop refresh credential and stops synchronization; it leaves existing Drive data intact.
 

@@ -58,7 +58,7 @@ export function authorizeGoogle(
       email: email ?? null,
     });
   if (isNativeApp()) return invoke("google_authorize", { interactive });
-  const clientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID;
+  const clientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID?.trim();
   if (!clientId)
     return Promise.reject(
       new Error(
