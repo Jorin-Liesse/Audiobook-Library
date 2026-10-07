@@ -2,7 +2,6 @@
   import { onMount, setContext, tick } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import { LibrarySync, type SyncStatus } from '#lib/library/sync.ts';
-  import DriveSync from '#lib/components/DriveSync.svelte';
   import BookCard from '#lib/components/BookCard.svelte';
   import BookSection from '#lib/components/BookSection.svelte';
   import FolderTile from '#lib/components/FolderTile.svelte';
@@ -556,20 +555,18 @@
     onrefresh={refreshLibrary}
     canRefresh={!!libraryName}
     busy={loading}
+    syncStatus={syncStatus}
+    onconnect={() => {
+      void sync?.connect();
+    }}
+    onsync={() => {
+      void sync?.syncNow();
+    }}
+    ondisconnect={() => {
+      void sync?.disconnect();
+    }}
   />
   <main>
-    <DriveSync
-      status={syncStatus}
-      onconnect={() => {
-        void sync?.connect();
-      }}
-      onsync={() => {
-        void sync?.syncNow();
-      }}
-      ondisconnect={() => {
-        void sync?.disconnect();
-      }}
-    />
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if loading && !books.length}
       <LibraryEmptyState

@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { LibraryFilter, LibraryView } from '#lib/types/library.ts';
+  import type { SyncStatus } from '#lib/library/sync.ts';
+  import DriveSync from './DriveSync.svelte';
   import Icon from './Icon.svelte';
 
   let {
@@ -9,7 +11,11 @@
     onchoose,
     onrefresh,
     canRefresh = false,
-    busy = false
+    busy = false,
+    syncStatus,
+    onconnect,
+    onsync,
+    ondisconnect
   }: {
     query?: string;
     view?: LibraryView;
@@ -18,6 +24,10 @@
     onrefresh: () => void;
     canRefresh?: boolean;
     busy?: boolean;
+    syncStatus: SyncStatus;
+    onconnect: () => void;
+    onsync: () => void;
+    ondisconnect: () => void;
   } = $props();
   let menuOpen = $state(false);
   let menuRoot: HTMLDivElement;
@@ -114,6 +124,7 @@
               onchoose();
             }}><span>Choose folder</span><Icon name="folder" size={18} /></button
           >
+          <DriveSync status={syncStatus} {onconnect} {onsync} {ondisconnect} />
         </div>
       {/if}
     </div>
