@@ -15,7 +15,8 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:android-audio": "node --experimental-vm-modules --test scripts/android-audio.test.mjs"
   },
   "license": "MIT",
   "dependencies": {

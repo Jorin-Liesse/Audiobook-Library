@@ -91,6 +91,9 @@ jobs:
       - name: Check frontend
         run: npm run check
 
+      - name: Test Android playback bridge
+        run: npm run test:android-audio
+
       - name: Initialize Android project
         if: ${{ hashFiles('src-tauri/gen/android/gradlew') == '' }}
         run: npm run tauri -- android init --ci --skip-targets-install

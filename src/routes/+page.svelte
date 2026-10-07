@@ -7,6 +7,7 @@
   import LibraryToolbar from '#lib/components/LibraryToolbar.svelte';
   import LibraryEmptyState from '#lib/components/LibraryEmptyState.svelte';
   import AudioPlayer from '#lib/components/AudioPlayer.svelte';
+  import { androidAudio, isAndroidApp } from '#lib/library/androidAudio.ts';
   import {
     buildLibrary,
     collator,
@@ -57,7 +58,7 @@
   let likes = $state<Record<string, number>>({});
   let read = $state<Record<string, number>>({});
   let playback = $state<Playback | null>(null);
-  let player = $state<{ flush: () => void }>();
+  let player = $state<{ flush: () => void | Promise<void> }>();
   let folderInput: HTMLInputElement;
   let coverLoader = new CoverLoader();
   let scanToken = 0;
@@ -160,14 +161,19 @@
 
   async function openBook(book: Book) {
     if (!(await ensureLibraryAccess())) return;
-    player?.flush();
+    await player?.flush();
     const saved = savedProgress(book);
     startBook(book, saved?.i ?? 0, saved?.t ?? 0);
   }
 
-  function closePlayer() {
-    player?.flush();
+  async function closePlayer() {
+    const closing = playback;
+    await player?.flush();
+    if (playback !== closing) return;
     playback = null;
+    if (isAndroidApp()) void androidAudio.stop().catch(() => {
+      error = 'The Android player could not be stopped. Use the media notification to pause playback.';
+    });
   }
 
   function saveProgress(book: Book, position: BookProgress) {
@@ -281,6 +287,8 @@
       savedHandle = null;
       accessNeeded = false;
       connectLibraryFiles(null);
+      if (isAndroidApp()) await androidAudio.stop();
+      if (token !== scanToken) return;
       loadBooks(catalog, library.name);
       if (!saved) error = 'Your library is open, but could not be remembered on this device.';
     } catch {
@@ -442,7 +450,10 @@
     document.addEventListener('visibilitychange', checkFolderAccess);
     const token = scanToken;
     void (async () => {
-      const { handle, catalog, legacy } = await readSavedLibrary();
+      const [{ handle, catalog, legacy }, nativePlayback] = await Promise.all([
+        readSavedLibrary(),
+        isAndroidApp() ? androidAudio.status().catch(() => null) : Promise.resolve(null)
+      ]);
       if (token !== scanToken) return;
       savedHandle = handle ?? null;
       connectLibraryFiles(savedHandle);
@@ -454,6 +465,21 @@
           accessNeeded = true;
         }
         if (token !== scanToken) return;
+      }
+      if (catalog && nativePlayback?.bookKey) {
+        const book = catalog.books.find((item) => item.key === nativePlayback.bookKey);
+        const index = nativePlayback.index ?? 0;
+        const position = nativePlayback.position ?? 0;
+        if (book && Number.isInteger(index) && index >= 0 && index < book.files.length
+          && Number.isFinite(position) && position >= 0) {
+          if (nativePlayback.ended) finishBook(book);
+          else saveProgress(book, {
+            i: index,
+            t: position,
+            p: (index + ((nativePlayback.duration ?? 0) > 0
+              ? Math.min(1, position / nativePlayback.duration!) : 0)) / book.files.length
+          });
+        }
       }
       if (catalog) loadBooks(catalog.books, catalog.name, !accessNeeded);
       else if (legacy) {

@@ -15,6 +15,7 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(tauri_plugin_android_fs::init())
+        .plugin(tauri_plugin_native_audio::init())
         .setup(|app| {
             library::start_android_server(app.handle())?;
             Ok(())

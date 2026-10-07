@@ -1,0 +1,3 @@
+[default]
+description = "Control audiobook playback in the Android media service."
+permissions = ["allow-load", "allow-status", "allow-play", "allow-pause", "allow-seek", "allow-stop"]

@@ -1,0 +1,7 @@
+{
+  "identifier": "android-audio",
+  "description": "Native background audiobook playback on Android",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": ["native-audio:default"]
+}
