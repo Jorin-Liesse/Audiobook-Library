@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
   import type { LibraryFilter, LibraryView } from '#lib/types/library.ts';
   import type { SyncStatus } from '#lib/library/sync.ts';
   import DriveSync from './DriveSync.svelte';
@@ -125,6 +126,22 @@
             }}><span>Choose folder</span><Icon name="folder" size={18} /></button
           >
           <DriveSync status={syncStatus} {onconnect} {onsync} {ondisconnect} />
+          <nav class="legal-links" aria-label="Legal information">
+            <a
+              class="menu-item"
+              href={resolve('/(legal)/privacy')}
+              target="_blank"
+              rel="noopener noreferrer"
+              onclick={() => (menuOpen = false)}>Privacy Policy</a
+            >
+            <a
+              class="menu-item"
+              href={resolve('/(legal)/term')}
+              target="_blank"
+              rel="noopener noreferrer"
+              onclick={() => (menuOpen = false)}>Terms of Service</a
+            >
+          </nav>
         </div>
       {/if}
     </div>
@@ -264,6 +281,15 @@
   }
   .menu-item:hover:not(:disabled) {
     background: var(--bg);
+  }
+  .legal-links {
+    border-top: 1px solid var(--line);
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+  .legal-links a {
+    color: inherit;
+    text-decoration: none;
   }
   .mobile {
     display: none;

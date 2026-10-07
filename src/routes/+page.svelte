@@ -532,6 +532,10 @@
   });
 </script>
 
+<svelte:head>
+  <meta name="description" content="Audiobook Library" />
+</svelte:head>
+
 {#snippet bookCard(book: Book)}
   <BookCard {book} playing={selectedBook?.id === book.id} onopen={openBook} onmark={toggleMark} />
 {/snippet}

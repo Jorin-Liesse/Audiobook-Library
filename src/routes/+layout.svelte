@@ -9,7 +9,6 @@
 <svelte:head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="Audiobook Library" />
   <meta name="text-scale" content="scale" />
   <meta name="theme-color" content="#e8ece4" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#151c1a" media="(prefers-color-scheme: dark)" />
