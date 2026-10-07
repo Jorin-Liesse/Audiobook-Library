@@ -1,4 +1,5 @@
 name: Deploy Web
+
 on:
   workflow_dispatch:
 
@@ -30,6 +31,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ vars.VITE_GOOGLE_WEB_CLIENT_ID }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
