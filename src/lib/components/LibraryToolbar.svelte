@@ -100,7 +100,10 @@
               onclick={() => {
                 menuOpen = false;
                 onrefresh();
-              }}><span>{busy ? 'Scanning library…' : 'Refresh library'}</span></button
+              }}><span>{busy ? 'Scanning library…' : 'Refresh library'}</span><Icon
+                name="refresh"
+                size={18}
+              /></button
             >
           {/if}
           <button

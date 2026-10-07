@@ -9,6 +9,7 @@
       | 'heart'
       | 'check'
       | 'folder'
+      | 'refresh'
       | 'play'
       | 'pause'
       | 'previous'
@@ -47,6 +48,9 @@
     <path d="m5 12 4.5 4.5L19 7" />
   {:else if name === 'folder'}
     <path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+  {:else if name === 'refresh'}
+    <path d="M20 3v5h-5M4 21v-5h5" />
+    <path d="M4 12a8 8 0 0 1 13.66-5.66L20 8M20 12a8 8 0 0 1-13.66 5.66L4 16" />
   {:else if name === 'play'}
     <path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none" />
   {:else if name === 'pause'}
