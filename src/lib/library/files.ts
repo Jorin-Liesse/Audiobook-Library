@@ -28,7 +28,7 @@ function hue(title: string) {
   return value;
 }
 
-// Match the grouping rules of the supplied standalone HTML.
+// A chapter folder forms one book; individual M4B files remain separate books.
 export function buildLibrary(allFiles: LibraryFile[]): Book[] {
   const files = allFiles.filter(
     (file) =>
@@ -157,32 +157,49 @@ export async function walk(
   return output;
 }
 
-interface FolderNode {
+export interface FolderNode {
   name: string;
   folders: Map<string, FolderNode>;
   books: Book[];
+  count: number;
+  previews: Book[];
 }
 
-export function folderContents(books: Book[], savedPath: string[]) {
+export function buildFolderTree(books: Book[]): FolderNode {
   const make = (name: string): FolderNode => ({
     name,
     folders: new Map(),
     books: [],
+    count: 0,
+    previews: [],
   });
   const root = make('Library');
-  for (const book of books) {
+  const sorted = [...books].sort((a, b) => collator.compare(a.title, b.title));
+  const include = (node: FolderNode, book: Book) => {
+    node.count++;
+    if (node.previews.length < 4) node.previews.push(book);
+  };
+  for (const book of sorted) {
     let node = root;
+    include(node, book);
     for (const part of book.treePath) {
       if (!node.folders.has(part)) node.folders.set(part, make(part));
       node = node.folders.get(part)!;
+      include(node, book);
     }
     node.books.push(book);
   }
+  const sortFolders = (node: FolderNode) => {
+    node.folders = new Map([...node.folders].sort(([a], [b]) => collator.compare(a, b)));
+    for (const child of node.folders.values()) sortFolders(child);
+  };
+  sortFolders(root);
+  return root;
+}
+
+// Navigation reads only the requested branch; the tree is rebuilt when filtering changes.
+export function folderContents(root: FolderNode, savedPath: string[]) {
   const passThrough = (node: FolderNode) => !node.books.length && node.folders.size === 1;
-  const allBooks = (node: FolderNode): Book[] => [
-    ...node.books,
-    ...[...node.folders.values()].flatMap(allBooks),
-  ];
   let node = root;
   const path: string[] = [];
   for (const part of savedPath) {
@@ -192,7 +209,7 @@ export function folderContents(books: Book[], savedPath: string[]) {
     path.push(part);
   }
   while (passThrough(node)) {
-    const [name, next] = [...node.folders][0];
+    const [name, next] = node.folders.entries().next().value!;
     path.push(name);
     node = next;
   }
@@ -205,14 +222,13 @@ export function folderContents(books: Book[], savedPath: string[]) {
   });
   return {
     crumbs,
-    books: [...node.books].sort((a, b) => collator.compare(a.title, b.title)),
-    folders: [...node.folders]
-      .sort(([a], [b]) => collator.compare(a, b))
-      .map(([name, child]) => ({
-        name: tidy(name),
-        path: [...path, name],
-        subfolders: child.folders.size,
-        books: allBooks(child).sort((a, b) => collator.compare(a.title, b.title)),
-      })),
+    books: node.books,
+    folders: [...node.folders].map(([name, child]) => ({
+      name: tidy(name),
+      path: [...path, name],
+      subfolders: child.folders.size,
+      count: child.count,
+      books: child.previews,
+    })),
   };
 }

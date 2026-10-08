@@ -1,28 +1,13 @@
 ﻿<script lang="ts">
-  import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
+  import type { PlayerProps } from '#lib/types/player.ts';
+  import type { Book, Playback } from '#lib/types/library.ts';
   import { stripExt, tidy } from '#lib/library/files.ts';
   import { libraryAudioSource } from '#lib/library/storage.ts';
   import PlayerControls from './PlayerControls.svelte';
+  import { playbackProgress } from '#lib/library/progress.ts';
 
-  let {
-    book,
-    playback,
-    onprogress,
-    onchapter,
-    onfinish,
-    onplay,
-    onclose,
-    onaccess,
-  }: {
-    book: Book;
-    playback: Playback;
-    onprogress: (book: Book, progress: BookProgress) => void;
-    onchapter: (index: number) => void;
-    onfinish: (book: Book) => void;
-    onplay: () => void;
-    onclose: () => void;
-    onaccess: () => Promise<boolean>;
-  } = $props();
+  let { book, playback, onprogress, onchapter, onfinish, onplay, onclose, onaccess }: PlayerProps =
+    $props();
   let audio = $state<HTMLAudioElement>();
   let playing = $state(false);
   let position = $state(0);
@@ -55,16 +40,16 @@
       audio.currentSrc !== active.url
     )
       return;
-    const within =
-      Number.isFinite(audio.duration) && audio.duration > 0
-        ? Math.min(1, audio.currentTime / audio.duration)
-        : 0;
     lastSavedPosition = audio.currentTime;
-    onprogress(active.book, {
-      i: active.command.index,
-      t: audio.currentTime,
-      p: (active.command.index + within) / active.book.files.length,
-    });
+    onprogress(
+      active.book,
+      playbackProgress(
+        active.command.index,
+        audio.currentTime,
+        audio.duration,
+        active.book.files.length,
+      ),
+    );
   }
 
   async function resume() {

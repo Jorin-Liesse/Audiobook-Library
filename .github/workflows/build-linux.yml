@@ -24,6 +24,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '24'
+          cache: npm
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -42,7 +43,6 @@ jobs:
             libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
             patchelf libfuse2 file xdg-utils
 
-      # No npm lockfile is currently committed, so npm ci cannot be used.
       - name: Install frontend dependencies
         run: npm ci
 

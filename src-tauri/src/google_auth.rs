@@ -29,7 +29,7 @@ fn random() -> String {
 }
 fn client_id() -> Result<&'static str, String> {
     option_env!("GOOGLE_DESKTOP_CLIENT_ID").filter(|v| !v.is_empty())
-        .ok_or_else(|| "Google sync needs VITE_GOOGLE_DESKTOP_CLIENT_ID in .env. Rebuild the app after setting it. See docs/google-drive-sync.md.".into())
+        .ok_or_else(|| "Google sync needs VITE_GOOGLE_DESKTOP_CLIENT_ID in .env. Rebuild the app after setting it.".into())
 }
 fn entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new("com.sapodillagames.audiobook-library.google", client_id()?)

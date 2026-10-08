@@ -1,21 +1,12 @@
 <script lang="ts">
-  import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
+  import type { PlayerProps, PlayerHandle } from '#lib/types/player.ts';
   import { isAndroidApp } from '#lib/library/androidAudio.ts';
   import AndroidAudioPlayer from './AndroidAudioPlayer.svelte';
   import WebAudioPlayer from './WebAudioPlayer.svelte';
 
-  let props: {
-    book: Book;
-    playback: Playback;
-    onprogress: (book: Book, progress: BookProgress) => void;
-    onchapter: (index: number) => void;
-    onfinish: (book: Book) => void;
-    onplay: () => void;
-    onclose: () => void;
-    onaccess: () => Promise<boolean>;
-  } = $props();
+  let props: PlayerProps = $props();
   const Player = isAndroidApp() ? AndroidAudioPlayer : WebAudioPlayer;
-  let player: { flush: () => void | Promise<void> } | undefined = $state();
+  let player: PlayerHandle | undefined = $state();
   export function flush() {
     return player?.flush();
   }

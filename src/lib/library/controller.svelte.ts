@@ -1,34 +1,34 @@
 import { onMount, setContext, tick } from 'svelte';
+import type { AndroidPlayback } from '#lib/library/androidAudio.ts';
 import { LibrarySync, type SyncStatus } from '#lib/library/sync.ts';
-import { androidAudio, isAndroidApp } from '#lib/library/androidAudio.ts';
-import { buildLibrary, folderContents, libraryFiles, walk } from '#lib/library/files.ts';
-import { COVER_CONTEXT, CoverLoader, type LoadCover } from '#lib/library/covers.ts';
+import {
+  buildLibrary,
+  buildFolderTree,
+  folderContents,
+  libraryFiles,
+  walk,
+} from '#lib/library/files.ts';
+import { COVER_CONTEXT, CoverLoader, type CoverAccess } from '#lib/library/covers.ts';
 import {
   isNativeApp,
-  isNativeFile,
   chooseNativeLibrary,
   refreshNativeLibrary,
   checkNativeAccess,
 } from '#lib/library/native.ts';
 import {
   connectLibraryFiles,
-  readSavedLibrary,
   requestPersistentStorage,
   restoreLibraryFiles,
   saveLibrary,
   store,
 } from '#lib/library/storage.ts';
-import type {
-  Book,
-  LibraryDirectory,
-  LibraryFilter,
-  LibraryView,
-  NativeLibrary,
-} from '#lib/types/library.ts';
+import type { Book, LibraryDirectory, LibraryFilter, LibraryView } from '#lib/types/library.ts';
 
 import { createPlaybackController } from '#lib/library/playback.svelte.ts';
 import { fileKey } from '#lib/library/syncState.ts';
 import { fingerprintFiles } from '#lib/library/fingerprints.ts';
+import { prepareLibrary, type LibraryImport } from '#lib/library/imports.ts';
+import { readLibraryRestoreState, recoverNativePlayback } from '#lib/library/restoration.ts';
 import { filterBooks, groupBooks, hasStarted } from '#lib/library/views.ts';
 
 export function createLibraryController() {
@@ -64,21 +64,38 @@ export function createLibraryController() {
   const playback = $derived(playbackManager.playback);
   const { startBook, openBook, closePlayer, saveProgress, finishBook } = playbackManager;
   let folderInput: HTMLInputElement;
-  let coverLoader = new CoverLoader();
+  let coverLoader = $state.raw(new CoverLoader());
   let scanToken = 0;
 
-  setContext<LoadCover>(COVER_CONTEXT, async (book) => {
-    const loader = coverLoader;
-    const result = await loader.load(book);
-    if (loader !== coverLoader) return;
-    book.coverUrl = result.url;
-    if (result.author) book.author = result.author;
+  setContext<CoverAccess>(COVER_CONTEXT, {
+    async load(book) {
+      const loader = coverLoader;
+      const result = await loader.load(book);
+      if (loader !== coverLoader || !loader.retained(book)) return;
+      book.coverUrl = result.url;
+      if (result.author) book.author = result.author;
+    },
+    retain(book) {
+      const loader = coverLoader;
+      const release = loader.retain(book);
+      return () => {
+        release();
+        if (loader === coverLoader && !loader.retained(book)) book.coverUrl = undefined;
+      };
+    },
   });
 
   const selectedBook = $derived(books.find((book) => book.id === playback?.bookId));
   const visibleBooks = $derived(filterBooks(books, query, filter));
-  const sections = $derived(groupBooks(visibleBooks, view));
-  const folders = $derived(folderContents(visibleBooks, folderPath));
+  const folderTree = $derived(buildFolderTree(visibleBooks));
+  const folders = $derived(folderContents(folderTree, folderPath));
+  const batchSize = 96;
+  let renderLimit = $state(batchSize);
+  const orderedBooks = $derived(groupBooks(visibleBooks, view).flatMap((section) => section.books));
+  const listBooks = $derived(view === 'folders' ? folders.books : orderedBooks);
+  const renderedBooks = $derived(listBooks.slice(0, renderLimit));
+  const hasMore = $derived(renderedBooks.length < listBooks.length);
+  const sections = $derived(groupBooks(renderedBooks, view));
 
   $effect(() => {
     if (ready) store.set('view', view);
@@ -125,15 +142,21 @@ export function createLibraryController() {
     sync?.mark(book, kind, !book[kind]);
   }
 
-  async function loadBooks(catalog: Book[], name: string, canRead = true, restoring = false) {
-    if (!restoring && !(await closePlayer())) return;
+  async function loadBooks(
+    catalog: Book[],
+    name: string,
+    canRead = true,
+    recovery: AndroidPlayback | null = null,
+  ) {
     playbackManager.clear();
     coverLoader.dispose();
     coverLoader = new CoverLoader(canRead);
     sync?.migrate(catalog);
+    recoverNativePlayback(sync, catalog, recovery);
     books = catalog.map(hydrate);
     indexBooks();
     folderPath = [];
+    renderLimit = batchSize;
     libraryName = name;
     const last = store.get<string | null>('last', null);
     const book = books.find((item) => item.key === last);
@@ -143,74 +166,54 @@ export function createLibraryController() {
     }
   }
 
-  async function openHandle(handle: LibraryDirectory) {
+  async function importLibrary(load: () => Promise<LibraryImport | null>, reuse = false) {
     const token = ++scanToken;
+    const current = () => token === scanToken;
     loading = true;
     error = '';
     try {
-      const files = await walk(handle);
-      if (token !== scanToken) return;
-
-      await fingerprintFiles(files, () => token === scanToken);
-      if (token !== scanToken) return;
-      const catalog = buildLibrary(files);
+      const input = await load();
+      if (!input || !current()) return;
+      const prepared = await prepareLibrary(input, books, current, reuse);
+      if (!prepared || !current() || !(await closePlayer()) || !current()) return;
       const saved = await saveLibrary(
-        handle,
+        prepared.handle,
         {
-          name: handle.name,
-          files: files.map((file) => ({ file, path: file.webkitRelativePath })),
+          name: prepared.name,
+          files: prepared.files.map((file) => ({
+            file,
+            path: file.webkitRelativePath || file.name,
+          })),
         },
-        catalog,
+        prepared.books,
       );
-      if (token !== scanToken) return;
-      savedHandle = handle;
+      if (!current()) return;
+      savedHandle = prepared.handle;
       accessNeeded = false;
-      connectLibraryFiles(handle);
-      await loadBooks(catalog, handle.name);
+      connectLibraryFiles(prepared.handle, prepared.files);
+      await loadBooks(prepared.books, prepared.name);
       if (!saved) error = 'Your library is open, but could not be remembered on this device.';
     } catch {
-      if (token === scanToken)
+      if (current())
         error =
           'This folder could not be read. Check that it is still available, then choose it again.';
     } finally {
-      if (token === scanToken) loading = false;
+      if (current()) loading = false;
     }
   }
 
-  async function openNativeLibrary(refresh = false) {
-    const token = ++scanToken;
-    loading = true;
-    error = '';
-    try {
-      const library: NativeLibrary | null = await (refresh
-        ? refreshNativeLibrary()
-        : chooseNativeLibrary());
-      if (!library || token !== scanToken) return;
-      const files = libraryFiles(library.files);
-      await fingerprintFiles(files, () => token === scanToken);
-      if (token !== scanToken) return;
-      const catalog = buildLibrary(files);
-      const saved = await saveLibrary(
-        null,
-        {
-          name: library.name,
-          files: files.map((file) => ({ file, path: file.webkitRelativePath })),
-        },
-        catalog,
-      );
-      if (token !== scanToken) return;
-      savedHandle = null;
-      accessNeeded = false;
-      connectLibraryFiles(null);
-      await loadBooks(catalog, library.name);
-      if (!saved) error = 'Your library is open, but could not be remembered on this device.';
-    } catch {
-      if (token === scanToken)
-        error =
-          'This folder could not be opened. Check that it is available, then choose it again.';
-    } finally {
-      if (token === scanToken) loading = false;
-    }
+  function openHandle(handle: LibraryDirectory, reuse = false) {
+    return importLibrary(
+      async () => ({ name: handle.name, files: await walk(handle), handle }),
+      reuse,
+    );
+  }
+
+  function openNativeLibrary(refresh = false, reuse = false) {
+    return importLibrary(async () => {
+      const library = await (refresh ? refreshNativeLibrary() : chooseNativeLibrary());
+      return library ? { ...library, handle: null } : null;
+    }, reuse);
   }
 
   async function chooseFolder() {
@@ -241,31 +244,8 @@ export function createLibraryController() {
   async function loadPickedFiles(event: Event) {
     const files = libraryFiles(Array.from((event.currentTarget as HTMLInputElement).files ?? []));
     if (!files.length) return;
-    const token = ++scanToken;
-    loading = true;
-    error = '';
-    const name = files[0]?.webkitRelativePath.split('/')[0] || 'Library';
-    await fingerprintFiles(files, () => token === scanToken);
-    if (token !== scanToken) return;
-    const catalog = buildLibrary(files);
-    const saved = await saveLibrary(
-      null,
-      {
-        name,
-        files: files.map((file) => ({
-          file,
-          path: file.webkitRelativePath || file.name,
-        })),
-      },
-      catalog,
-    );
-    if (token !== scanToken) return;
-    savedHandle = null;
-    accessNeeded = false;
-    connectLibraryFiles(null, files);
-    await loadBooks(catalog, name);
-    loading = false;
-    if (!saved) error = 'Your library is open, but could not be remembered on this device.';
+    const name = files[0].webkitRelativePath.split('/')[0] || 'Library';
+    await importLibrary(async () => ({ name, files, handle: null }));
   }
 
   async function ensureLibraryAccess() {
@@ -354,21 +334,23 @@ export function createLibraryController() {
     }
   }
 
-  async function refreshLibrary() {
+  async function refreshLibrary(forceFingerprints = false) {
     if (await ensureLibraryAccess()) {
-      if (isNativeApp()) await openNativeLibrary(true);
-      else if (savedHandle) await openHandle(savedHandle);
+      if (isNativeApp()) await openNativeLibrary(true, !forceFingerprints);
+      else if (savedHandle) await openHandle(savedHandle, !forceFingerprints);
       else await chooseFolder();
     }
   }
 
   function navigateFolder(path: string[]) {
     folderPath = path;
+    renderLimit = batchSize;
     window.scrollTo(0, 0);
   }
   function clearFilters() {
     query = '';
     filter = 'all';
+    renderLimit = batchSize;
   }
 
   async function checkFolderAccess() {
@@ -428,62 +410,19 @@ export function createLibraryController() {
     document.addEventListener('visibilitychange', checkFolderAccess);
     const token = scanToken;
     void (async () => {
-      const [{ handle, catalog, legacy }, nativePlayback] = await Promise.all([
-        readSavedLibrary(),
-        isAndroidApp() ? androidAudio.status().catch(() => null) : Promise.resolve(null),
-      ]);
+      const {
+        handle,
+        catalog,
+        legacy,
+        playback: nativePlayback,
+        canRead,
+      } = await readLibraryRestoreState();
       if (token !== scanToken) return;
       savedHandle = handle ?? null;
       connectLibraryFiles(savedHandle);
-      accessNeeded = catalog ? catalog.version === 2 : !!handle;
-      if (native && catalog?.books.some((book) => book.files.some(isNativeFile))) {
-        try {
-          accessNeeded = !(await checkNativeAccess());
-        } catch {
-          accessNeeded = true;
-        }
-        if (token !== scanToken) return;
-      }
-      if (handle) {
-        try {
-          accessNeeded = (await handle.queryPermission({ mode: 'read' })) !== 'granted';
-        } catch {
-          accessNeeded = true;
-        }
-      }
-      if (token !== scanToken) return;
-      if (catalog) sync?.migrate(catalog.books);
-      if (catalog && nativePlayback?.bookKey) {
-        const book = catalog.books.find((item) => item.key === nativePlayback.bookKey);
-        const index = nativePlayback.index ?? 0;
-        const position = nativePlayback.position ?? 0;
-        if (
-          book &&
-          Number.isInteger(index) &&
-          index >= 0 &&
-          index < book.files.length &&
-          Number.isFinite(position) &&
-          position >= 0
-        ) {
-          sync?.recover(
-            book,
-            {
-              i: index,
-              t: position,
-              p:
-                (index +
-                  ((nativePlayback.duration ?? 0) > 0
-                    ? Math.min(1, position / nativePlayback.duration!)
-                    : 0)) /
-                book.files.length,
-            },
-            nativePlayback.updatedAt ?? 0,
-            !!nativePlayback.ended,
-          );
-        }
-      }
+      accessNeeded = !canRead;
       if (catalog) {
-        await loadBooks(catalog.books, catalog.name, !accessNeeded, true);
+        await loadBooks(catalog.books, catalog.name, !accessNeeded, nativePlayback);
         if (!accessNeeded) {
           try {
             await upgradeFingerprints();
@@ -497,21 +436,9 @@ export function createLibraryController() {
         accessNeeded = false;
         await fingerprintFiles(files, () => token === scanToken);
         if (token !== scanToken) return;
-        await loadBooks(buildLibrary(files), legacy.name, true, true);
+        await loadBooks(buildLibrary(files), legacy.name);
       }
-      try {
-        if (handle && (await handle.queryPermission({ mode: 'read' })) === 'granted') {
-          if (token !== scanToken) return;
-          accessNeeded = false;
-          if (catalog) {
-            coverLoader.dispose();
-            coverLoader = new CoverLoader();
-            for (const book of books) book.coverUrl = undefined;
-          } else if (!legacy) await openHandle(handle);
-        }
-      } catch {
-        // The cached catalogue stays usable; permission can be granted when playing.
-      }
+      if (handle && canRead && !catalog && !legacy && token === scanToken) await openHandle(handle);
     })().catch(() => {
       if (token === scanToken)
         error = 'Your saved library could not be restored. Choose your folder again.';
@@ -536,6 +463,15 @@ export function createLibraryController() {
     },
     get folders() {
       return folders;
+    },
+    get renderedBooks() {
+      return renderedBooks;
+    },
+    get hasMore() {
+      return hasMore;
+    },
+    loadMore() {
+      renderLimit = Math.min(listBooks.length, renderLimit + batchSize);
     },
     get selectedBook() {
       return selectedBook;
@@ -562,18 +498,21 @@ export function createLibraryController() {
       return view;
     },
     set view(value: typeof view) {
+      if (view !== value) renderLimit = batchSize;
       view = value;
     },
     get filter() {
       return filter;
     },
     set filter(value: typeof filter) {
+      if (filter !== value) renderLimit = batchSize;
       filter = value;
     },
     get query() {
       return query;
     },
     set query(value: typeof query) {
+      if (query !== value) renderLimit = batchSize;
       query = value;
     },
     get folderInput() {
@@ -593,6 +532,7 @@ export function createLibraryController() {
     chooseFolder,
     loadPickedFiles,
     refreshLibrary,
+    rescanLibrary: () => refreshLibrary(true),
     reopenFolder,
     clearFilters,
     navigateFolder,

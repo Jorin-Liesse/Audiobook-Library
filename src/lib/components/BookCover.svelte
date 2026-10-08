@@ -1,28 +1,18 @@
 <script lang="ts">
   import { getContext } from 'svelte';
-  import { COVER_CONTEXT, type LoadCover } from '#lib/library/covers.ts';
+  import { COVER_CONTEXT, type CoverAccess } from '#lib/library/covers.ts';
   import type { Book } from '#lib/types/library.ts';
+  import { observeNearViewport } from '#lib/library/visibility.ts';
   let { book, mini = false }: { book: Book; mini?: boolean } = $props();
-  const loadCover = getContext<LoadCover>(COVER_CONTEXT);
+  const covers = getContext<CoverAccess>(COVER_CONTEXT);
   let element: HTMLDivElement;
+  $effect(() => covers.retain(book));
   $effect(() => {
     const item = book;
     if (item.coverUrl !== undefined || !element) return;
-    if (!('IntersectionObserver' in window)) {
-      void loadCover(item);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          observer.disconnect();
-          void loadCover(item);
-        }
-      },
-      { rootMargin: '300px' },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
+    return observeNearViewport(element, () => {
+      void covers.load(item);
+    });
   });
 </script>
 
@@ -34,7 +24,7 @@
   style:--cover-color={book.cover.color}
   style:--cover-accent={book.cover.accent}
 >
-  {#if book.coverUrl}<img src={book.coverUrl} alt="" />{:else}
+  {#if book.coverUrl}<img src={book.coverUrl} alt="" decoding="async" />{:else}
     <svg class="art" viewBox="0 0 200 200" fill="none" aria-hidden="true">
       {#if book.cover.motif === 'orbit'}
         <circle cx="100" cy="93" r="46" fill="currentColor" opacity=".13" />

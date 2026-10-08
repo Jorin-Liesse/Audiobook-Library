@@ -1,28 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
+  import type { PlayerProps } from '#lib/types/player.ts';
+  import type { Book } from '#lib/types/library.ts';
   import { stripExt, tidy } from '#lib/library/files.ts';
   import { androidAudio, type AndroidPlayback } from '#lib/library/androidAudio.ts';
   import PlayerControls from './PlayerControls.svelte';
+  import { playbackProgress } from '#lib/library/progress.ts';
+  import { createLatestTask } from '#lib/library/latestTask.ts';
 
-  let {
-    book,
-    playback,
-    onprogress,
-    onfinish,
-    onplay,
-    onclose,
-    onaccess,
-  }: {
-    book: Book;
-    playback: Playback;
-    onprogress: (book: Book, progress: BookProgress) => void;
-    onchapter: (index: number) => void;
-    onfinish: (book: Book) => void;
-    onplay: () => void;
-    onclose: () => void;
-    onaccess: () => Promise<boolean>;
-  } = $props();
+  let { book, playback, onprogress, onfinish, onplay, onclose, onaccess }: PlayerProps = $props();
   let playing = $state(false);
   let position = $state(0);
   let duration = $state(0);
@@ -61,15 +47,12 @@
       return;
     lastSavedPosition = time;
     lastSavedIndex = index;
-    onprogress(selected, {
-      i: index,
-      t: time,
-      p: (index + (length > 0 ? Math.min(1, time / length) : 0)) / selected.files.length,
-    });
+    onprogress(selected, playbackProgress(index, time, length, selected.files.length));
   }
 
   export async function flush() {
     if (!attached) return;
+    await seeks.flush();
     const selected = book;
     persist(selected, snapshot);
     try {
@@ -101,7 +84,7 @@
 
   async function refresh() {
     const token = generation;
-    if (busy || !attached) return;
+    if (busy || !attached || seeks.pending) return;
     try {
       const state = await androidAudio.status();
       if (token === generation) apply(state);
@@ -113,6 +96,8 @@
 
   async function pause() {
     const token = generation;
+    await seeks.flush();
+    if (token !== generation) return;
     try {
       const state = await androidAudio.pause();
       if (token === generation) {
@@ -124,23 +109,28 @@
     }
   }
 
-  async function seek(event: Event) {
-    const target = (Number((event.currentTarget as HTMLInputElement).value) / 100) * duration;
-    const token = generation;
+  const seeks = createLatestTask<{ target: number; token: number }>(async ({ target, token }) => {
+    if (token !== generation) return;
     try {
       const state = await androidAudio.seek(target);
       if (token === generation) {
         apply(state);
-        flush();
+        persist(book, state);
       }
     } catch {
       if (token === generation) error = 'The playback position could not be changed.';
     }
+  });
+
+  function seek(event: Event) {
+    position = (Number((event.currentTarget as HTMLInputElement).value) / 100) * duration;
+    seeks.schedule({ target: position, token: generation });
   }
 
   $effect(() => {
     const command = playback;
     const selected = book;
+    seeks.cancel();
     const token = ++generation;
     position = command.startTime;
     lastSavedPosition = command.startTime;
@@ -177,6 +167,7 @@
       }
     })();
     return () => {
+      seeks.cancel();
       ++generation;
     };
   });
@@ -210,6 +201,9 @@
   {busy}
   {onclose}
   onseek={seek}
+  onseekcommit={() => {
+    void seeks.flush();
+  }}
   ontoggle={() => {
     if (playing) void pause();
     else onplay();

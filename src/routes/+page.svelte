@@ -7,7 +7,20 @@
   import AudioPlayer from '#lib/components/AudioPlayer.svelte';
   import type { Book } from '#lib/types/library.ts';
   import { createLibraryController } from '#lib/library/controller.svelte.ts';
+  import { observeNearViewport } from '#lib/library/visibility.ts';
   const library = createLibraryController();
+  const autoLoadSupported = typeof IntersectionObserver !== 'undefined';
+  let loadMoreTarget = $state<HTMLDivElement>();
+
+  $effect(() => {
+    const renderedCount = library.renderedBooks.length;
+    const target = loadMoreTarget;
+    if (!autoLoadSupported || !library.hasMore || !target) return;
+    return observeNearViewport(target, () => {
+      // Ignore repeated notifications until the appended cards have rendered.
+      if (library.renderedBooks.length === renderedCount) library.loadMore();
+    });
+  });
 </script>
 
 <svelte:head>
@@ -39,7 +52,8 @@
     bind:view={library.view}
     bind:filter={library.filter}
     onchoose={library.chooseFolder}
-    onrefresh={library.refreshLibrary}
+    onrefresh={() => library.refreshLibrary()}
+    onrescan={library.rescanLibrary}
     canRefresh={!!library.libraryName}
     busy={library.loading}
     syncStatus={library.syncStatus}
@@ -106,6 +120,7 @@
               <FolderTile
                 name={folder.name}
                 books={folder.books}
+                count={folder.count}
                 subfolders={folder.subfolders}
                 onopen={() => library.navigateFolder(folder.path)}
               />
@@ -116,7 +131,7 @@
       {#if library.folders.books.length}
         {#if library.folders.folders.length}<h2 class="folder-heading">Books</h2>{/if}
         <div class="book-grid">
-          {#each library.folders.books as book (book.id)}{@render bookCard(book)}{/each}
+          {#each library.renderedBooks as book (book.id)}{@render bookCard(book)}{/each}
         </div>
       {/if}
     {:else}
@@ -125,6 +140,15 @@
           >{#each group.books as book (book.id)}{@render bookCard(book)}{/each}</BookSection
         >
       {/each}
+    {/if}
+    {#if library.hasMore}
+      <div class="load-more" bind:this={loadMoreTarget}>
+        {#if autoLoadSupported}
+          <span class="sr-only">More books load as you scroll.</span>
+        {:else}
+          <button onclick={library.loadMore}>Load more books</button>
+        {/if}
+      </div>
     {/if}
   </main>
   {#if library.selectedBook && library.playback}
@@ -159,19 +183,21 @@
     margin: 0 auto;
     padding: 28px var(--gutter-right) 28px var(--gutter-left);
   }
-  .library-heading {
+  .load-more {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 32px;
+    justify-content: center;
+    min-height: 2px;
+    margin-top: 24px;
+  }
+  .load-more button {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    color: inherit;
+    padding: 8px 16px;
   }
   .error {
     color: var(--accent);
-    margin-bottom: 16px;
-  }
-  .access-note {
-    color: var(--muted);
     margin-bottom: 16px;
   }
   .folder-group {
@@ -213,10 +239,6 @@
     }
     .with-player {
       padding-bottom: calc(150px + var(--safe-area-bottom));
-    }
-    .library-heading {
-      margin-bottom: 24px;
-      align-items: flex-start;
     }
   }
 </style>

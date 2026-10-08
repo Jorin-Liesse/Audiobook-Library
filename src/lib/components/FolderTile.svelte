@@ -4,20 +4,27 @@
   let {
     name,
     books,
+    count,
     subfolders = 0,
     onopen,
-  }: { name: string; books: Book[]; subfolders?: number; onopen: () => void } = $props();
+  }: {
+    name: string;
+    books: Book[];
+    count: number;
+    subfolders?: number;
+    onopen: () => void;
+  } = $props();
 </script>
 
-<button class="tile" onclick={onopen} aria-label={`Open ${name}, ${books.length} books`}>
-  <div class="mosaic" class:one={books.length === 1}>
-    {#each books.slice(0, 4) as book (book.id)}<BookCover {book} mini />{/each}
+<button class="tile" onclick={onopen} aria-label={`Open ${name}, ${count} books`}>
+  <div class="mosaic" class:one={count === 1}>
+    {#each books as book (book.id)}<BookCover {book} mini />{/each}
   </div>
   <span class="title">{name}</span>
   <span class="meta"
     >{#if subfolders}{subfolders} {subfolders === 1 ? 'folder' : 'folders'} ·
-    {/if}{books.length}
-    {books.length === 1 ? 'book' : 'books'}</span
+    {/if}{count}
+    {count === 1 ? 'book' : 'books'}</span
   >
 </button>
 

@@ -14,6 +14,9 @@ import {
   emptyState,
   maxRevision,
   mergeState,
+  mergeFileState,
+  sameFileState,
+  type FileState,
   migrateLegacy,
   migrateFileIdentities,
   fileKey,
@@ -39,6 +42,8 @@ export class LibrarySync {
   private cachedKey = '';
   private cachedState = emptyState();
   private storageFailed = false;
+  private persisted = new Map<string, FileState>();
+  private pendingWrites = new Set<string>();
   private account: DriveAccount | null = null;
   private token: GoogleToken | null = null;
   private expires = 0;
@@ -49,6 +54,7 @@ export class LibrarySync {
   private fileId: string | undefined;
   private shard: string = this.writer;
   private uploaded = '';
+  private snapshots = new Map<string, string>();
   private running: Promise<void> | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private poll: ReturnType<typeof setInterval> | undefined;
@@ -68,14 +74,29 @@ export class LibrarySync {
   private key() {
     return 'sync.state.' + (this.account?.id ?? 'offline');
   }
-  private cached() {
+  private cached(refresh = false) {
     try {
       const key = this.key();
-      const value = store.get(key, emptyState());
-      if (key !== this.cachedKey || value !== this.cachedValue) {
-        this.cachedState = parseState(value);
+      const value = store.get<SyncState | null>(key, null);
+      if (refresh || key !== this.cachedKey || value !== this.cachedValue) {
+        this.cachedState = value ? parseState(value) : emptyState();
+        this.persisted = new Map(Object.entries(this.cachedState.files));
+        if (key !== this.cachedKey) this.pendingWrites.clear();
         this.cachedKey = key;
         this.cachedValue = value;
+        for (const entryKey of store.keys(key + '.file.')) {
+          try {
+            const identity = decodeURIComponent(entryKey.slice((key + '.file.').length));
+            const entry = this.readEntry(identity);
+            if (entry)
+              this.cachedState.files[identity] = mergeFileState(
+                this.cachedState.files[identity],
+                entry,
+              );
+          } catch {
+            /* One corrupt journal key must not hide the rest of the library. */
+          }
+        }
       }
       return this.cachedState;
     } catch {
@@ -105,27 +126,70 @@ export class LibrarySync {
     }
   }
   private cachedStateSeen: SyncState | undefined;
-  private persist() {
-    this.storageFailed = !store.set(this.key(), this.state);
-    if (!this.storageFailed) {
-      this.cachedValue = this.state;
-      this.cachedKey = this.key();
-      this.cachedState = this.state;
-      this.cachedStateSeen = this.state;
+  private entryKey(identity: string) {
+    return this.key() + '.file.' + encodeURIComponent(identity);
+  }
+  private readEntry(identity: string) {
+    const value = store.get<FileState | null>(this.entryKey(identity), null);
+    if (!value) return undefined;
+    try {
+      const entry = parseState({ version: 1, files: { [identity]: value } }).files[identity];
+      this.persisted.set(identity, entry);
+      return entry;
+    } catch {
+      return undefined;
     }
   }
-  private stamp() {
+  private persist(keys: Iterable<string> = Object.keys(this.state.files)) {
+    for (const key of keys) this.pendingWrites.add(key);
+    // Each checkpoint is one small synchronous record, including on pagehide.
+    // Old whole-state snapshots remain readable for an upgrade without data loss.
+    for (const key of this.pendingWrites) {
+      const entry = this.state.files[key];
+      if (!entry) {
+        this.pendingWrites.delete(key);
+        continue;
+      }
+      if (sameFileState(this.persisted.get(key), entry)) {
+        this.pendingWrites.delete(key);
+        continue;
+      }
+      const saved = this.readEntry(key);
+      const merged = saved ? mergeFileState(entry, saved) : entry;
+      this.state.files[key] = merged;
+      if (sameFileState(this.persisted.get(key), merged) || store.set(this.entryKey(key), merged)) {
+        this.persisted.set(key, merged);
+        this.pendingWrites.delete(key);
+      }
+    }
+    this.storageFailed = this.pendingWrites.size > 0;
+  }
+  private stamp(book: Book, chapterIndex?: number) {
     this.mergeCached();
+    const files =
+      chapterIndex === undefined ? book.files : book.files.slice(chapterIndex, chapterIndex + 1);
+    for (const file of files) {
+      const key = fileKey(file);
+      const entry = this.readEntry(key);
+      if (entry) {
+        this.state.files[key] = mergeFileState(this.state.files[key], entry);
+        this.revision = Math.max(
+          this.revision,
+          maxRevision({ version: 1, files: { [key]: entry } }),
+        );
+      }
+    }
     this.revision = Math.max(Date.now(), this.revision + 1);
     return {
       at: this.revision,
       by: this.writer,
     };
   }
-  private edited(next: SyncState, book: Book) {
-    this.state = next;
-    this.persist();
-    this.changed(new Set(book.files.map(fileKey)));
+  private edited(patch: SyncState) {
+    for (const [key, entry] of Object.entries(patch.files))
+      this.state.files[key] = mergeFileState(this.state.files[key], entry);
+    this.persist(Object.keys(patch.files));
+    this.changed(new Set(Object.keys(patch.files)));
     if (this.account) this.status.message = 'Changes saved on this device; waiting to sync.';
     this.publish();
     this.schedule();
@@ -134,12 +198,12 @@ export class LibrarySync {
     return bookState(this.state, book);
   }
   progress(book: Book, position: BookProgress) {
-    const stamp = this.stamp();
-    this.edited(setProgress(this.state, book, position, stamp), book);
+    const stamp = this.stamp(book, position.i);
+    this.edited(setProgress(emptyState(), book, position, stamp));
   }
   mark(book: Book, kind: 'liked' | 'read', value: boolean) {
-    const stamp = this.stamp();
-    this.edited(setMark(this.state, book, kind, value, stamp), book);
+    const stamp = this.stamp(book);
+    this.edited(setMark(emptyState(), book, kind, value, stamp));
   }
   recover(book: Book, position: BookProgress, at: number, ended: boolean) {
     if (!Number.isSafeInteger(at) || at <= 0) return;
@@ -148,14 +212,13 @@ export class LibrarySync {
     this.revision = Math.max(this.revision, at);
     this.edited(
       ended
-        ? completeBook(this.state, book, stamp)
-        : setProgress(this.state, book, position, stamp),
-      book,
+        ? completeBook(emptyState(), book, stamp)
+        : setProgress(emptyState(), book, position, stamp),
     );
   }
   finish(book: Book) {
-    const stamp = this.stamp();
-    this.edited(completeBook(this.state, book, stamp), book);
+    const stamp = this.stamp(book);
+    this.edited(completeBook(emptyState(), book, stamp));
   }
   migrate(books: Book[]) {
     this.books = books;
@@ -177,6 +240,19 @@ export class LibrarySync {
     this.schedule();
   }
   private onStorage = (event: StorageEvent) => {
+    const prefix = 'abl.' + this.key() + '.file.';
+    if (event.key?.startsWith(prefix)) {
+      try {
+        const key = decodeURIComponent(event.key.slice(prefix.length));
+        const entry = this.readEntry(key);
+        if (entry) this.state.files[key] = mergeFileState(this.state.files[key], entry);
+        this.changed(new Set([key]));
+        this.schedule();
+      } catch {
+        /* Ignore unrelated or malformed journal keys. */
+      }
+      return;
+    }
     if (event.key !== 'abl.' + this.key()) return;
     this.mergeCached();
     this.state = migrateFileIdentities(this.state, this.books);
@@ -193,7 +269,7 @@ export class LibrarySync {
       (typeof this.account.id !== 'string' || typeof this.account.email !== 'string')
     )
       this.account = null;
-    this.state = this.cached();
+    this.state = mergeState(emptyState(), this.cached());
     this.cachedStateSeen = this.state;
     this.revision = maxRevision(this.state);
     // Tabs share one device shard when Web Locks can serialize their uploads.
@@ -230,7 +306,8 @@ export class LibrarySync {
       const previous = this.account;
       const local = this.state;
       this.account = account;
-      this.state = this.cached();
+      this.state =
+        previous?.id === account.id ? mergeState(local, this.cached(true)) : this.cached(true);
       if (!store.get<boolean>('sync.hasConnected', false) && !previous) {
         this.state = mergeState(this.state, local);
         store.set('sync.legacyOwner', account.id);
@@ -241,6 +318,7 @@ export class LibrarySync {
       this.expires = Date.now() + Math.max(0, token.expiresIn - 60) * 1000;
       this.fileId = undefined;
       this.uploaded = '';
+      this.snapshots.clear();
       this.state = migrateFileIdentities(this.state, this.books);
       this.revision = Math.max(this.revision, maxRevision(this.state));
       this.persist();
@@ -274,7 +352,8 @@ export class LibrarySync {
     this.account = null;
     this.fileId = undefined;
     this.uploaded = '';
-    this.state = this.cached();
+    this.snapshots.clear();
+    this.state = this.cached(true);
     store.set('sync.account', null);
     this.authorizing = false;
     this.status = {
@@ -334,15 +413,27 @@ export class LibrarySync {
       }
       const drive = new GoogleDrive(this.token.accessToken);
       const files = await drive.list();
+      const present = new Set(files.map((file) => file.id));
+      for (const id of this.snapshots.keys()) if (!present.has(id)) this.snapshots.delete(id);
       let remote = emptyState();
+      const downloadedVersions = new Map<string, string>();
       // Bounded reads keep large libraries from flooding Drive with requests.
       for (let i = 0; i < files.length; i += 5) {
         const batch = await Promise.all(
           files.slice(i, i + 5).map(async (file) => {
+            const cached = this.snapshots.get(file.id);
+            // Unchanged records are already merged into local state.
+            if (file.version && cached === file.version) return emptyState();
             try {
-              return await drive.read(file.id);
+              const state = await drive.read(file.id);
+              if (epoch === this.epoch && !this.disposed && file.version)
+                downloadedVersions.set(file.id, file.version);
+              return state;
             } catch (error) {
-              if (error instanceof DriveError && error.status === 404) return emptyState();
+              if (error instanceof DriveError && error.status === 404) {
+                this.snapshots.delete(file.id);
+                return emptyState();
+              }
               throw error;
             }
           }),
@@ -352,6 +443,8 @@ export class LibrarySync {
       if (epoch !== this.epoch || this.disposed) return;
       this.mergeCached();
       this.state = migrateFileIdentities(mergeState(this.state, remote), this.books);
+      // Publish versions only after every download succeeds and its data is merged.
+      for (const [id, version] of downloadedVersions) this.snapshots.set(id, version);
       this.revision = Math.max(this.revision, maxRevision(this.state));
       this.persist();
       this.changed();
@@ -366,6 +459,7 @@ export class LibrarySync {
           this.fileId = await drive.write(undefined, name, this.state);
         }
         if (epoch !== this.epoch || this.disposed) return;
+        this.snapshots.delete(this.fileId!);
         this.uploaded = body;
       }
       this.status.lastSynced = Date.now();

@@ -11,6 +11,7 @@
     filter = $bindable('all'),
     onchoose,
     onrefresh,
+    onrescan,
     canRefresh = false,
     busy = false,
     syncStatus,
@@ -23,6 +24,7 @@
     filter?: LibraryFilter;
     onchoose: () => void;
     onrefresh: () => void;
+    onrescan: () => void;
     canRefresh?: boolean;
     busy?: boolean;
     syncStatus: SyncStatus;
@@ -117,6 +119,16 @@
                 size={18}
               /></button
             >
+            <button
+              class="menu-item"
+              disabled={busy}
+              onclick={() => {
+                menuOpen = false;
+                onrescan();
+              }}
+            >
+              Rescan audio files
+            </button>
           {/if}
           <button
             class="menu-item"

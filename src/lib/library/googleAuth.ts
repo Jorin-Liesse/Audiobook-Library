@@ -54,7 +54,9 @@ export function authorizeGoogle(interactive: boolean, email?: string): Promise<G
   const clientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID?.trim();
   if (!clientId)
     return Promise.reject(
-      new Error('Google sync needs a web OAuth client ID. See docs/google-drive-sync.md.'),
+      new Error(
+        'Google sync needs a web OAuth client ID. Configure VITE_GOOGLE_WEB_CLIENT_ID and rebuild the app.',
+      ),
     );
   // Browser token renewal requires a click; never open popups from a timer.
   if (!interactive) return Promise.reject(new Error('Reconnect Google Drive to continue syncing.'));

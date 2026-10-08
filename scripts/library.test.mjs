@@ -3,10 +3,14 @@ import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { webcrypto } from 'node:crypto';
 import { compileModule } from 'svelte/compiler';
+// eslint-disable-next-line svelte/no-svelte-internal -- Evaluate generated rune modules against their compiler runtime.
+import * as svelteServer from 'svelte/internal/server';
+// eslint-disable-next-line svelte/no-svelte-internal -- Exercise reactive controller behavior without a browser.
+import * as svelteClient from 'svelte/internal/client';
 import test from 'node:test';
 import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
 
-async function load(file, mocks = {}, globals = {}) {
+async function load(file, mocks = {}, globals = {}, generate = 'server') {
   const context = createContext({
     crypto: webcrypto,
     TextEncoder,
@@ -41,14 +45,25 @@ async function load(file, mocks = {}, globals = {}) {
     }
     if (specifier === 'svelte/internal/server') {
       if (!modules.has(specifier))
-        modules.set(specifier, new SyntheticModule([], function () {}, { context }));
+        modules.set(
+          specifier,
+          new SyntheticModule(
+            Object.keys(svelteServer),
+            function () {
+              for (const [key, value] of Object.entries(svelteServer)) this.setExport(key, value);
+            },
+            { context },
+          ),
+        );
       return modules.get(specifier);
     }
-    const url = new URL(specifier, referencing?.identifier ?? new URL('../', import.meta.url));
+    const url = specifier.startsWith('#lib/')
+      ? new URL('../src/lib/' + specifier.slice(5), import.meta.url)
+      : new URL(specifier, referencing?.identifier ?? new URL('../', import.meta.url));
     if (modules.has(url.href)) return modules.get(url.href);
     let source = stripTypeScriptTypes(await readFile(url, 'utf8'), { mode: 'transform' });
     if (url.pathname.endsWith('.svelte.ts'))
-      source = compileModule(source, { filename: url.pathname, generate: 'server' }).js.code;
+      source = compileModule(source, { filename: url.pathname, generate }).js.code;
     const module = new SourceTextModule(source, {
       context,
       identifier: url.href,
@@ -250,7 +265,7 @@ test('storage reports write failure and reuses parsed snapshots until another ta
   assert.equal(store.get('key', {}).value, 3);
 });
 
-async function coverFixture(read) {
+async function coverFixture(read, globals = {}) {
   const cached = new Map();
   const timers = new Map();
   let nextTimer = 0;
@@ -263,6 +278,7 @@ async function coverFixture(read) {
           set: async (_store, key, value) => cached.set(key, value),
         },
         loadLibraryFile: async (file) => file,
+        pruneCoverCache: async () => {},
       },
       './native.ts': native,
       'jsmediatags/dist/jsmediatags.min.js': { default: { read } },
@@ -275,6 +291,7 @@ async function coverFixture(read) {
         },
       },
       clearTimeout: (id) => timers.delete(id),
+      ...globals,
     },
   );
   const book = { key: 'Library/Story', files: [metadata], image: null, parentImage: null };
@@ -366,4 +383,347 @@ test('a failed Android stop reports an error and retains the player for retry', 
   assert.equal(await controller.closePlayer(), false);
   assert.equal(controller.playback.bookId, 'a');
   assert.match(error, /could not be stopped/);
+});
+
+test('refresh fingerprints are reused only when location, size and modification time match', async () => {
+  const { reuseFingerprints } = await load('src/lib/library/fingerprints.ts', {
+    './native.ts': native,
+    './storage.ts': { loadLibraryFile: async (file) => file },
+  });
+  const saved = { ...metadata, fingerprint: 'saved' };
+  const unchanged = { ...metadata };
+  const modified = { ...metadata, lastModified: 2 };
+  const resized = { ...metadata, size: 101 };
+  const renamed = { ...metadata, webkitRelativePath: 'Other/story.mp3' };
+  const unknown = { ...metadata, lastModified: 0 };
+  reuseFingerprints([unchanged, modified, resized, renamed, unknown], [saved]);
+  assert.equal(unchanged.fingerprint, 'saved');
+  for (const file of [modified, resized, renamed, unknown])
+    assert.equal(file.fingerprint, undefined);
+  const oldNative = { ...saved, source: 'native', location: 'content://old' };
+  const newNative = { ...metadata, source: 'native', location: 'content://new' };
+  reuseFingerprints([newNative], [oldNative]);
+  assert.equal(newNative.fingerprint, undefined);
+});
+
+test('folder navigation retains sorted summaries, counts all descendants and recovers invalid paths', async () => {
+  const { buildFolderTree, folderContents } = await load('src/lib/library/files.ts');
+  const books = Array.from({ length: 12 }, (_, index) => ({
+    id: String(index),
+    title: 'Book ' + (12 - index),
+    treePath: ['Library', index < 10 ? 'Series' : 'Other'],
+  }));
+  const tree = buildFolderTree(books);
+  const home = folderContents(tree, []);
+  assert.equal(home.crumbs[0].label, 'Library');
+  const series = home.folders.find((folder) => folder.name === 'Series');
+  assert.equal(series.count, 10);
+  assert.deepEqual(
+    Array.from(series.books, (book) => book.title),
+    ['Book 3', 'Book 4', 'Book 5', 'Book 6'],
+  );
+  const inside = folderContents(tree, series.path);
+  assert.equal(inside.books.length, 10);
+  assert.equal(inside.books, tree.folders.get('Library').folders.get('Series').books);
+  assert.equal(folderContents(tree, [...series.path, 'missing']).books, inside.books);
+  assert.equal(home.folders[0].name, 'Other');
+});
+
+test('seek coalescing keeps the latest queued position and flush waits for it', async () => {
+  const { createLatestTask } = await load('src/lib/library/latestTask.ts');
+  const calls = [];
+  let release;
+  const seeks = createLatestTask(async (position) => {
+    calls.push(position);
+    if (calls.length === 1)
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+  });
+  seeks.schedule(1);
+  const flushed = seeks.flush();
+  for (let position = 2; position <= 100; position++) seeks.schedule(position);
+  assert.deepEqual(calls, [1]);
+  release();
+  await flushed;
+  assert.deepEqual(calls, [1, 100]);
+  seeks.schedule(200);
+  seeks.cancel();
+  await seeks.flush();
+  assert.deepEqual(calls, [1, 100]);
+});
+
+test('cover URLs survive shared usage and are revoked after the final card releases them', async () => {
+  const revoked = [];
+  let calls = 0;
+  const fixture = await coverFixture(
+    (_file, callbacks) => {
+      calls++;
+      callbacks.onSuccess({ tags: { picture: { data: [1, 2], format: 'image/jpeg' } } });
+    },
+    { URL: { createObjectURL: () => 'blob:cover', revokeObjectURL: (url) => revoked.push(url) } },
+  );
+  const loader = new fixture.CoverLoader();
+  const releaseCard = loader.retain(fixture.book);
+  const releasePlayer = loader.retain(fixture.book);
+  await loader.load(fixture.book);
+  releaseCard();
+  await Promise.resolve();
+  assert.deepEqual(revoked, []);
+  releasePlayer();
+  await Promise.resolve();
+  assert.deepEqual(revoked, ['blob:cover']);
+  const releaseAgain = loader.retain(fixture.book);
+  await loader.load(fixture.book);
+  assert.equal(calls, 1, 'Reopening a card reuses its persistent thumbnail');
+  releaseAgain();
+  loader.dispose();
+});
+
+test('thumbnail generation bounds dimensions and releases the decoded bitmap', async () => {
+  let dimensions;
+  let closed = false;
+  const thumbnail = new Blob(['small']);
+  const { coverThumbnail } = await load(
+    'src/lib/library/thumbnails.ts',
+    {},
+    {
+      createImageBitmap: async () => ({
+        width: 2048,
+        height: 1024,
+        close() {
+          closed = true;
+        },
+      }),
+      document: {
+        createElement: () => ({
+          getContext: () => ({
+            drawImage(_image, _x, _y, width, height) {
+              dimensions = [width, height];
+            },
+          }),
+          toBlob: (callback) => callback(thumbnail),
+        }),
+      },
+    },
+  );
+  assert.equal(await coverThumbnail(new Blob(['large'])), thumbnail);
+  assert.deepEqual(dimensions, [512, 256]);
+  assert.equal(closed, true);
+});
+
+test('covers share one visibility observer and disconnect after the final card', async () => {
+  const observers = [];
+  class Observer {
+    targets = new Set();
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+    observe(target) {
+      this.targets.add(target);
+    }
+    unobserve(target) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+  }
+  const { observeNearViewport } = await load(
+    'src/lib/library/visibility.ts',
+    {},
+    { IntersectionObserver: Observer },
+  );
+  const first = {},
+    second = {};
+  let loads = 0;
+  const disposeFirst = observeNearViewport(first, () => loads++);
+  const disposeSecond = observeNearViewport(second, () => loads++);
+  assert.equal(observers.length, 1);
+  observers[0].callback([
+    { target: first, isIntersecting: true },
+    { target: second, isIntersecting: false },
+  ]);
+  assert.equal(loads, 1);
+  disposeFirst();
+  assert.equal(observers[0].disconnected, undefined);
+  disposeSecond();
+  assert.equal(observers[0].disconnected, true);
+});
+
+async function libraryController(prepareLibrary, reactive = false) {
+  const cover = {
+    COVER_CONTEXT: Symbol(),
+    CoverLoader: class {
+      dispose() {}
+    },
+  };
+  const { createLibraryController } = await load(
+    'src/lib/library/controller.svelte.ts',
+    {
+      'svelte/internal/client': svelteClient,
+      svelte: { onMount() {}, setContext() {}, tick: async () => {} },
+      '#lib/library/covers.ts': cover,
+      '#lib/library/sync.ts': { LibrarySync: class {} },
+      '#lib/library/native.ts': {
+        ...native,
+        isNativeApp: () => false,
+        chooseNativeLibrary() {},
+        refreshNativeLibrary() {},
+        checkNativeAccess() {},
+      },
+      '#lib/library/restoration.ts': { readLibraryRestoreState() {}, recoverNativePlayback() {} },
+      '#lib/library/fingerprints.ts': { fingerprintFiles() {} },
+      '#lib/library/imports.ts': { prepareLibrary },
+      '#lib/library/playback.svelte.ts': {
+        createPlaybackController: () => ({ clear() {}, closePlayer: async () => true }),
+      },
+      '#lib/library/storage.ts': {
+        connectLibraryFiles() {},
+        requestPersistentStorage() {},
+        restoreLibraryFiles() {},
+        saveLibrary: async () => true,
+        store: { get: (_key, fallback) => fallback },
+      },
+    },
+    { window: { scrollTo() {} } },
+    reactive ? 'client' : 'server',
+  );
+  if (!reactive) return createLibraryController();
+  let controller;
+  const dispose = svelteClient.effect_root(() => {
+    controller = createLibraryController();
+  });
+  return Object.assign(controller, { dispose });
+}
+
+test('continuous scrolling appends sorted books and resets for search, views, folders and imports', async (t) => {
+  const catalog = Array.from({ length: 220 }, (_, index) => ({
+    id: String(index),
+    key: String(index),
+    title: 'Story ' + String(index).padStart(3, '0'),
+    series: index % 2 ? 'B' : 'A',
+    treePath: [index % 2 ? 'Beta' : 'Alpha'],
+    files: [{ ...metadata, name: index + '.mp3' }],
+  })).reverse();
+  const controller = await libraryController(
+    async () => ({ name: 'Library', handle: null, files: [metadata], books: catalog }),
+    true,
+  );
+  t.after(controller.dispose);
+  const event = { currentTarget: { files: [{ ...metadata }] } };
+  await controller.loadPickedFiles(event);
+  assert.equal(controller.error, '');
+  const ids = () => Array.from(controller.renderedBooks, (book) => book.id);
+  const expected = [
+    ...Array.from({ length: 110 }, (_, i) => String(i * 2)),
+    ...Array.from({ length: 110 }, (_, i) => String(i * 2 + 1)),
+  ];
+  assert.deepEqual(ids(), expected.slice(0, 96));
+  assert.equal(controller.hasMore, true);
+  controller.loadMore();
+  assert.deepEqual(ids(), expected.slice(0, 192));
+  controller.loadMore();
+  assert.deepEqual(ids(), expected);
+  assert.equal(controller.hasMore, false);
+  controller.loadMore();
+  assert.deepEqual(ids(), expected);
+
+  controller.query = 'Story';
+  assert.equal(controller.renderedBooks.length, 96);
+  controller.loadMore();
+  controller.query = 'Story';
+  assert.equal(controller.renderedBooks.length, 192);
+  controller.view = 'az';
+  assert.deepEqual(
+    ids(),
+    Array.from({ length: 96 }, (_, i) => String(i)),
+  );
+  controller.loadMore();
+  controller.filter = 'new';
+  assert.equal(controller.renderedBooks.length, 96);
+
+  controller.view = 'folders';
+  controller.navigateFolder(['Alpha']);
+  assert.deepEqual(ids(), expected.slice(0, 96));
+  controller.loadMore();
+  assert.deepEqual(ids(), expected.slice(0, 110));
+  assert.equal(controller.hasMore, false);
+  controller.navigateFolder(['Beta']);
+  assert.deepEqual(ids(), expected.slice(110, 206));
+  assert.equal(controller.hasMore, true);
+  controller.query = 'missing';
+  assert.equal(controller.renderedBooks.length, 0);
+  assert.equal(controller.hasMore, false);
+  controller.clearFilters();
+  assert.equal(controller.renderedBooks.length, 96);
+
+  controller.view = 'series';
+  controller.loadMore();
+  await controller.loadPickedFiles(event);
+  assert.deepEqual(ids(), expected.slice(0, 96));
+});
+
+test('fallback import failures clear loading and allow a later retry', async () => {
+  let attempts = 0;
+  const controller = await libraryController(async () => {
+    attempts++;
+    throw Error('Unreadable audio');
+  });
+  const event = { currentTarget: { files: [{ ...metadata }] } };
+  await controller.loadPickedFiles(event);
+  assert.equal(controller.loading, false);
+  assert.match(controller.error, /could not be read/);
+  await controller.loadPickedFiles(event);
+  assert.equal(attempts, 2);
+  assert.equal(controller.loading, false);
+});
+
+test('cover cache pruning keeps recent artwork within both count and byte limits', async () => {
+  const entries = new Map([
+    ['old', { checkedAt: 1, blob: new Blob(['12']) }],
+    ['large', { checkedAt: 2, blob: new Blob(['12345']) }],
+    ['new', { checkedAt: 3, blob: new Blob(['12']) }],
+  ]);
+  const db = {
+    transaction() {
+      const tx = {
+        objectStore: () => ({
+          delete: (key) => entries.delete(key),
+          openCursor() {
+            const request = {};
+            const items = [...entries];
+            let index = 0;
+            const next = () =>
+              queueMicrotask(() => {
+                const item = items[index++];
+                request.result = item ? { key: item[0], value: item[1], continue: next } : null;
+                request.onsuccess();
+                if (!item) queueMicrotask(() => tx.oncomplete());
+              });
+            next();
+            return request;
+          },
+        }),
+      };
+      return tx;
+    },
+  };
+  const indexedDB = {
+    open() {
+      const request = { result: db };
+      queueMicrotask(() => request.onsuccess());
+      return request;
+    },
+  };
+  const { pruneCoverCache } = await load(
+    'src/lib/library/storage.ts',
+    { './native.ts': native },
+    { indexedDB },
+  );
+  await pruneCoverCache(2, 4);
+  assert.deepEqual([...entries.keys()].sort(), ['new', 'old']);
+  await pruneCoverCache(1, 4);
+  assert.deepEqual([...entries.keys()], ['new']);
 });

@@ -69,6 +69,18 @@ export function createLibraryIndex(library: SavedLibrary, books: Book[], hasFold
 const parsedValues = new Map<string, { raw: string; value: unknown }>();
 
 export const store = {
+  keys(prefix: string) {
+    const keys: string[] = [];
+    try {
+      for (let index = 0; index < localStorage.length; index++) {
+        const key = localStorage.key(index);
+        if (key?.startsWith('abl.' + prefix)) keys.push(key.slice(4));
+      }
+    } catch {
+      /* Unavailable storage is reported by the next write. */
+    }
+    return keys;
+  },
   get<T>(key: string, fallback: T): T {
     try {
       const value = localStorage.getItem('abl.' + key);
@@ -160,6 +172,53 @@ export const idb = {
     return transaction<undefined>(name, 'readwrite', (store) => store.delete(key));
   },
 };
+
+// Keep the newest artwork within both limits. Existing database stores need no upgrade.
+let pruningCovers: Promise<void> | undefined;
+export function pruneCoverCache(maxEntries = 500, maxBytes = 64 * 1024 * 1024) {
+  if (pruningCovers) return pruningCovers;
+  const task = (async () => {
+    try {
+      const db = await openDatabase();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('covers', 'readwrite');
+        const covers = tx.objectStore('covers');
+        const entries: { key: IDBValidKey; at: number; bytes: number }[] = [];
+        const cursor = covers.openCursor();
+        cursor.onsuccess = () => {
+          const item = cursor.result;
+          if (item) {
+            entries.push({
+              key: item.key,
+              at: item.value.checkedAt ?? 0,
+              bytes: item.value.blob?.size ?? 0,
+            });
+            item.continue();
+          } else {
+            entries.sort((a, b) => b.at - a.at);
+            let bytes = 0;
+            let count = 0;
+            for (const entry of entries) {
+              if (count < maxEntries && bytes + entry.bytes <= maxBytes) {
+                count++;
+                bytes += entry.bytes;
+              } else covers.delete(entry.key);
+            }
+          }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = tx.onabort = () => reject(tx.error);
+      });
+    } catch {
+      /* Artwork can always be regenerated from the library. */
+    }
+  })();
+  pruningCovers = task;
+  void task.then(() => {
+    if (pruningCovers === task) pruningCovers = undefined;
+  });
+  return task;
+}
 
 // Save only metadata and the original folder handle, never audio bytes.
 // Keeping the database version avoids blocking startup on another open PWA tab.

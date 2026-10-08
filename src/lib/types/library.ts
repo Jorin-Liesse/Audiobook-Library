@@ -58,9 +58,13 @@ export interface Book {
   };
 }
 
+// Persisted field names are stable across app versions and synced devices.
 export interface BookProgress {
+  /** Zero-based chapter index. */
   i: number;
+  /** Position in seconds within that chapter. */
   t: number;
+  /** Fraction of the whole book, from zero to one. */
   p: number;
 }
 

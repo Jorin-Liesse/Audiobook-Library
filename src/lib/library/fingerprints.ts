@@ -84,3 +84,21 @@ export async function fingerprintFiles(files: LibraryFile[], current = () => tru
   // Publish together so playback never sees a partly migrated catalogue.
   if (current()) for (const [file, fingerprint] of fingerprints) file.fingerprint = fingerprint;
 }
+
+// Reuse only within the same library refresh. Unknown modification times must be reread.
+export function reuseFingerprints(files: LibraryFile[], previous: LibraryFile[]) {
+  const identity = (file: LibraryFile) =>
+    JSON.stringify([
+      isNativeFile(file) ? file.location : file.webkitRelativePath || file.name,
+      file.size,
+      file.lastModified,
+    ]);
+  const saved = new Map(
+    previous
+      .filter((file) => file.fingerprint && file.lastModified > 0)
+      .map((file) => [identity(file), file.fingerprint!]),
+  );
+  for (const file of files) {
+    if (!file.fingerprint && file.lastModified > 0) file.fingerprint = saved.get(identity(file));
+  }
+}

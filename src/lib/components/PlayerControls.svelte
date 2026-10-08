@@ -13,6 +13,7 @@
     busy = false,
     ontoggle,
     onseek,
+    onseekcommit,
     onclose,
   }: {
     book: Book;
@@ -25,6 +26,7 @@
     busy?: boolean;
     ontoggle: () => void;
     onseek: (event: Event) => void;
+    onseekcommit?: () => void;
     onclose: () => void;
   } = $props();
   function timeLabel(seconds: number) {
@@ -65,6 +67,7 @@
           value={fraction}
           disabled={duration <= 0}
           oninput={onseek}
+          onchange={onseekcommit}
           aria-label="Playback position"
           aria-valuetext={`${timeLabel(position)} of ${timeLabel(duration)}`}
           style:--progress={fraction / 100}

@@ -4,6 +4,13 @@ import { parseState } from './syncState.ts';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 export const SNAPSHOT_PREFIX = 'audiobook-library-sync-v1-';
+// Drive's monotonically increasing version invalidates downloaded snapshots.
+// https://developers.google.com/workspace/drive/api/reference/rest/v3/files
+export interface DriveSnapshot {
+  id: string;
+  name: string;
+  version?: string;
+}
 export interface DriveAccount {
   id: string;
   email: string;
@@ -53,14 +60,14 @@ export class GoogleDrive {
       name: result.user.displayName || result.user.emailAddress,
     };
   }
-  async list(): Promise<{ id: string; name: string }[]> {
-    const files: { id: string; name: string }[] = [];
+  async list(): Promise<DriveSnapshot[]> {
+    const files: DriveSnapshot[] = [];
     let pageToken = '';
     do {
       const query = new URLSearchParams({
         spaces: 'appDataFolder',
         q: "trashed = false and name contains '" + SNAPSHOT_PREFIX + "'",
-        fields: 'nextPageToken,files(id,name)',
+        fields: 'nextPageToken,files(id,name,version)',
         pageSize: '1000',
       });
       if (pageToken) query.set('pageToken', pageToken);
@@ -71,7 +78,11 @@ export class GoogleDrive {
           typeof file.name === 'string' &&
           file.name.startsWith(SNAPSHOT_PREFIX)
         )
-          files.push(file);
+          files.push({
+            id: file.id,
+            name: file.name,
+            version: typeof file.version === 'string' ? file.version : undefined,
+          });
       pageToken = page.nextPageToken ?? '';
     } while (pageToken);
     return files;

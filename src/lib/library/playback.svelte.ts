@@ -1,10 +1,7 @@
 import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
 import { androidAudio, isAndroidApp } from './androidAudio.ts';
 import { store } from './storage.ts';
-
-export interface PlayerHandle {
-  flush: () => void | Promise<void>;
-}
+import type { PlayerHandle } from '#lib/types/player.ts';
 
 export function createPlaybackController(options: {
   ensureAccess: () => Promise<boolean>;
@@ -59,7 +56,7 @@ export function createPlaybackController(options: {
 
   function saveProgress(book: Book, position: BookProgress) {
     options.progress(book, position);
-    store.set('last', book.key);
+    if (store.get<string | null>('last', null) !== book.key) store.set('last', book.key);
   }
 
   function finishBook(book: Book) {

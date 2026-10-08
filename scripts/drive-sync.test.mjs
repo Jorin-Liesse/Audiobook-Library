@@ -232,6 +232,7 @@ async function coordinator({
   failWrites = false,
   changed = () => {},
 } = {}) {
+  const listeners = new Map();
   const { context, stateModule, driveModule, state, drive } = await modules({
     fetch: request,
     navigator: { onLine: true },
@@ -240,7 +241,14 @@ async function coordinator({
       addEventListener() {},
       removeEventListener() {},
     },
-    window: { addEventListener() {}, removeEventListener() {} },
+    window: {
+      addEventListener(name, listener) {
+        listeners.set(name, listener);
+      },
+      removeEventListener(name) {
+        listeners.delete(name);
+      },
+    },
     setTimeout: (callback) => {
       timers.push(callback);
       return timers.length;
@@ -252,9 +260,10 @@ async function coordinator({
     clearInterval() {},
   });
   const store = {
+    keys: (prefix) => [...storage.keys()].filter((key) => key.startsWith(prefix)),
     get: (key, fallback) => (storage.has(key) ? structuredClone(storage.get(key)) : fallback),
     set: (key, value) => {
-      if (failWrites) return false;
+      if (typeof failWrites === 'function' ? failWrites() : failWrites) return false;
       storage.set(key, structuredClone(value));
       return true;
     },
@@ -290,7 +299,7 @@ async function coordinator({
     status = value;
   });
   sync.start();
-  return { sync, storage, timers, state, drive, context, status: () => status };
+  return { sync, storage, timers, state, drive, context, listeners, status: () => status };
 }
 
 function fakeDrive() {
@@ -298,6 +307,7 @@ function fakeDrive() {
   let account = 'a';
   let online = true;
   let writes = 0;
+  let reads = 0;
   const request = async (input, options) => {
     if (!online) throw Error('offline');
     const url = new URL(input);
@@ -310,24 +320,29 @@ function fakeDrive() {
       const metadata = JSON.parse(parts[1].split('\r\n--')[0]);
       const state = JSON.parse(parts[2].split('\r\n--')[0]);
       const id = String(++writes);
-      files.set(id, { id, name: metadata.name, state, account });
+      files.set(id, { id, name: metadata.name, state, account, version: 1 });
       return Response.json({ id });
     }
     const id = url.pathname.split('/').at(-1);
     if (options.method === 'PATCH') {
       files.get(id).state = JSON.parse(options.body);
+      files.get(id).version++;
       return Response.json({ id });
     }
-    if (url.searchParams.get('alt') === 'media') return Response.json(files.get(id).state);
+    if (url.searchParams.get('alt') === 'media') {
+      reads++;
+      return files.has(id) ? Response.json(files.get(id).state) : new Response('', { status: 404 });
+    }
     return Response.json({
       files: [...files.values()]
         .filter((f) => f.account === account)
-        .map(({ id, name }) => ({ id, name })),
+        .map(({ id, name, version }) => ({ id, name, version: version?.toString() })),
     });
   };
   return {
     request,
     files,
+    reads: () => reads,
     setAccount: (value) => {
       account = value;
     },
@@ -514,4 +529,99 @@ test('a legacy identity already claimed by one fingerprint cannot migrate to a d
   const migrated = s.parseState(s.migrateFileIdentities(legacy, [a]));
   assert.equal(s.bookState(s.migrateFileIdentities(migrated, [b]), b).progress, null);
   assert.equal(s.bookState(migrated, a).progress.t, 8);
+});
+
+test('Drive caches unchanged versions and downloads changed snapshots', async () => {
+  const remote = fakeDrive();
+  const a = await coordinator({ fetch: remote.request });
+  const b = await coordinator({ fetch: remote.request });
+  const selected = book([file('cached.m4b')]);
+  a.sync.mark(selected, 'liked', true);
+  await a.sync.connect();
+  await b.sync.connect();
+  // Populate both caches, including snapshots written during the previous sync.
+  await b.sync.syncNow();
+  const reads = remote.reads();
+  await b.sync.syncNow();
+  assert.equal(remote.reads(), reads);
+  a.sync.mark(selected, 'read', true);
+  await a.sync.syncNow();
+  const beforeChange = remote.reads();
+  await b.sync.syncNow();
+  assert.equal(remote.reads(), beforeChange + 1);
+  assert.equal(b.sync.get(selected).read, true);
+  a.sync.dispose();
+  b.sync.dispose();
+});
+
+test('per-file journals restore legacy snapshots and save only the edited audio record', async () => {
+  const storage = new Map();
+  const setup = await modules();
+  const first = book([file('first.m4b')]);
+  const second = book([file('second.m4b')]);
+  const snapshot = setup.state.setMark(setup.state.emptyState(), first, 'liked', true, stamp(10));
+  storage.set('sync.state.offline', plain(snapshot));
+  const a = await coordinator({ storage });
+  a.sync.progress(second, { i: 0, t: 42, p: 0.4 });
+  assert.deepEqual(storage.get('sync.state.offline'), plain(snapshot));
+  const journals = [...storage.keys()].filter((key) => key.startsWith('sync.state.offline.file.'));
+  assert.equal(journals.length, 1);
+  assert.equal(JSON.stringify(storage.get(journals[0])).includes('first.m4b'), false);
+  const b = await coordinator({ storage });
+  assert.equal(b.sync.get(first).liked, true);
+  assert.equal(b.sync.get(second).progress.t, 42);
+  a.sync.dispose();
+  b.sync.dispose();
+});
+
+test('tabs merge journal fields and notify changes without rewriting other files', async () => {
+  const storage = new Map();
+  const a = await coordinator({ storage });
+  const b = await coordinator({ storage });
+  const selected = book([file('shared.m4b')]);
+  a.sync.mark(selected, 'liked', true);
+  b.sync.mark(selected, 'read', true);
+  const key = [...storage.keys()].find((key) => key.includes('.file.'));
+  a.listeners.get('storage')({ key: 'abl.' + key });
+  assert.equal(a.sync.get(selected).liked, true);
+  assert.equal(a.sync.get(selected).read, true);
+  a.sync.mark(selected, 'liked', false);
+  b.listeners.get('storage')({ key: 'abl.' + key });
+  assert.equal(b.sync.get(selected).liked, false);
+  assert.equal(b.sync.get(selected).read, true);
+  const restored = await coordinator({ storage });
+  assert.equal(restored.sync.get(selected).read, true);
+  assert.equal(restored.sync.get(selected).liked, false);
+  a.sync.dispose();
+  b.sync.dispose();
+  restored.sync.dispose();
+});
+
+test('reconnecting the same account preserves journal checkpoints', async () => {
+  const remote = fakeDrive();
+  const a = await coordinator({ fetch: remote.request });
+  const selected = book([file('resume.m4b')]);
+  await a.sync.connect();
+  a.sync.progress(selected, { i: 0, t: 120, p: 0.5 });
+  await a.sync.connect();
+  assert.equal(a.sync.get(selected).progress.t, 120);
+  a.sync.dispose();
+});
+
+test('failed journal checkpoints are retried with later edits and survive a restart', async () => {
+  let failing = true;
+  const storage = new Map();
+  const a = await coordinator({ storage, failWrites: () => failing });
+  const first = book([file('retry.m4b')]);
+  const second = book([file('other.m4b')]);
+  a.sync.progress(first, { i: 0, t: 90, p: 0.3 });
+  assert.ok(a.status().storageError);
+  failing = false;
+  a.sync.mark(second, 'liked', true);
+  assert.equal(a.status().storageError, undefined);
+  const restored = await coordinator({ storage });
+  assert.equal(restored.sync.get(first).progress.t, 90);
+  assert.equal(restored.sync.get(second).liked, true);
+  a.sync.dispose();
+  restored.sync.dispose();
 });

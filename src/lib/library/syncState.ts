@@ -100,18 +100,36 @@ export function parseState(value: unknown): SyncState {
   return result;
 }
 
+// Reuse unchanged entries so persistence can skip records that already match disk.
+export function mergeFileState(previous: FileState | undefined, incoming: FileState): FileState {
+  let result = previous;
+  const change = () => {
+    if (result === previous) result = { ...previous };
+    return result!;
+  };
+  if (!previous?.legacyKey && incoming.legacyKey) change().legacyKey = incoming.legacyKey;
+  for (const field of ['progress', 'liked', 'read'] as const) {
+    const stamp = incoming[field];
+    if (stamp && newer(stamp, previous?.[field])) Object.assign(change(), { [field]: stamp });
+  }
+  return result ?? {};
+}
+
+export function sameFileState(a: FileState | undefined, b: FileState) {
+  return (
+    !!a &&
+    a.legacyKey === b.legacyKey &&
+    (['progress', 'liked', 'read'] as const).every(
+      (field) => a[field]?.at === b[field]?.at && a[field]?.by === b[field]?.by,
+    )
+  );
+}
+
 // Independent fields merge independently. False/null revisions preserve removals.
 export function mergeState(a: SyncState, b: SyncState): SyncState {
   const result: SyncState = { version: 1, files: { ...a.files } };
-  for (const [key, incoming] of Object.entries(b.files)) {
-    const fields = { ...result.files[key] };
-    if (!fields.legacyKey && incoming.legacyKey) fields.legacyKey = incoming.legacyKey;
-    for (const field of ['progress', 'liked', 'read'] as const) {
-      const stamp = incoming[field];
-      if (stamp && newer(stamp, fields[field])) Object.assign(fields, { [field]: stamp });
-    }
-    result.files[key] = fields;
-  }
+  for (const [key, incoming] of Object.entries(b.files))
+    result.files[key] = mergeFileState(result.files[key], incoming);
   return result;
 }
 
@@ -154,13 +172,14 @@ export function setProgress(
   position: BookProgress,
   stamp: Omit<Stamp<never>, 'value'>,
 ) {
-  const file = book.files[position.i];
+  const { i: chapterIndex, t: seconds, p: fraction } = position;
+  const file = book.files[chapterIndex];
   if (
     !file ||
-    !Number.isInteger(position.i) ||
-    !Number.isFinite(position.t) ||
-    position.t < 0 ||
-    !Number.isFinite(position.p)
+    !Number.isInteger(chapterIndex) ||
+    !Number.isFinite(seconds) ||
+    seconds < 0 ||
+    !Number.isFinite(fraction)
   )
     return state;
   const key = fileKey(file);
@@ -171,8 +190,8 @@ export function setProgress(
         progress: {
           ...stamp,
           value: {
-            t: position.t,
-            fraction: Math.max(0, Math.min(1, position.p * book.files.length - position.i)),
+            t: seconds,
+            fraction: Math.max(0, Math.min(1, fraction * book.files.length - chapterIndex)),
           },
         },
       },
