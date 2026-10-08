@@ -27,9 +27,10 @@
   <meta name="description" content="Audiobook Library" />
 </svelte:head>
 
-{#snippet bookCard(book: Book)}
+{#snippet bookCard(book: Book, index: number)}
   <BookCard
     {book}
+    {index}
     playing={library.selectedBook?.id === book.id}
     onopen={library.openBook}
     onmark={library.toggleMark}
@@ -75,6 +76,7 @@
       <LibraryEmptyState
         title="Scanning your library…"
         message="Finding audiobooks in your folder and its subfolders."
+        busy
       />
     {:else if library.books.length === 0}
       {#if library.savedHandle && !library.libraryName}
@@ -116,8 +118,9 @@
         <div class="folder-group">
           {#if library.folders.books.length}<h2 class="folder-heading">Folders</h2>{/if}
           <div class="book-grid">
-            {#each library.folders.folders as folder (folder.path.join('/'))}
+            {#each library.folders.folders as folder, index (folder.path.join('/'))}
               <FolderTile
+                {index}
                 name={folder.name}
                 books={folder.books}
                 count={folder.count}
@@ -131,13 +134,19 @@
       {#if library.folders.books.length}
         {#if library.folders.folders.length}<h2 class="folder-heading">Books</h2>{/if}
         <div class="book-grid">
-          {#each library.renderedBooks as book (book.id)}{@render bookCard(book)}{/each}
+          {#each library.renderedBooks as book, index (book.id)}{@render bookCard(
+              book,
+              index,
+            )}{/each}
         </div>
       {/if}
     {:else}
       {#each library.sections as group (group.name)}
         <BookSection title={group.name} count={group.books.length}
-          >{#each group.books as book (book.id)}{@render bookCard(book)}{/each}</BookSection
+          >{#each group.books as book, index (book.id)}{@render bookCard(
+              book,
+              index,
+            )}{/each}</BookSection
         >
       {/each}
     {/if}

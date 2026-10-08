@@ -6,17 +6,24 @@
     books,
     count,
     subfolders = 0,
+    index = 0,
     onopen,
   }: {
     name: string;
     books: Book[];
     count: number;
     subfolders?: number;
+    index?: number;
     onopen: () => void;
   } = $props();
 </script>
 
-<button class="tile" onclick={onopen} aria-label={`Open ${name}, ${count} books`}>
+<button
+  class="tile"
+  onclick={onopen}
+  aria-label={`Open ${name}, ${count} books`}
+  style:--enter-delay={`${Math.min(index, 9) * 25}ms`}
+>
   <div class="mosaic" class:one={count === 1}>
     {#each books as book (book.id)}<BookCover {book} mini />{/each}
   </div>
@@ -36,6 +43,7 @@
     border: 0;
     padding: 0;
     text-align: left;
+    animation: library-enter 360ms var(--motion-ease) var(--enter-delay) backwards;
   }
   .mosaic {
     aspect-ratio: 1;
@@ -47,6 +55,10 @@
     border-radius: 6px;
     background: var(--line);
     box-shadow: 0 0 0 1px var(--line);
+    transition: transform var(--motion-normal) var(--motion-ease);
+  }
+  .tile:active .mosaic {
+    transform: scale(0.98);
   }
   .mosaic.one {
     grid-template-columns: 1fr;

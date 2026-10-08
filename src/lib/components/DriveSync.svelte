@@ -24,7 +24,7 @@
       >{status.account ? 'Reconnect Google Drive' : 'Sign in with Google'}</button
     >
   {:else}
-    <button class="menu-item" disabled={status.busy} onclick={onsync}
+    <button class="menu-item" class:syncing={status.busy} disabled={status.busy} onclick={onsync}
       ><span>{status.busy ? 'Syncing…' : 'Sync now'}</span><Icon name="refresh" size={18} /></button
     >
   {/if}
@@ -67,5 +67,13 @@
   }
   button:disabled {
     opacity: 0.6;
+  }
+  .syncing :global(svg) {
+    animation: sync-spin 1s linear infinite;
+  }
+  @keyframes sync-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

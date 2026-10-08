@@ -94,6 +94,7 @@
     display: none;
   }
   img {
+    animation: library-enter var(--motion-normal) var(--motion-ease);
     position: absolute;
     inset: 0;
     width: 100%;
@@ -142,6 +143,7 @@
     display: block;
     height: 100%;
     background: var(--accent);
+    transition: width var(--motion-normal) ease;
   }
   .mini {
     border-radius: 0;

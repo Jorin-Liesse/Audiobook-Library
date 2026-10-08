@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Book } from '#lib/types/library.ts';
+  import { reveal } from '#lib/motion.ts';
   import BookCover from './BookCover.svelte';
   import Icon from './Icon.svelte';
   let {
@@ -40,11 +41,12 @@
   }
 </script>
 
-<aside class="player" aria-label="Audiobook player">
+<aside class="player" aria-label="Audiobook player" in:reveal={{ y: 24, duration: 280 }}>
   <div class="inner">
     <div class="now">
-      <div class="artwork">
+      <div class="artwork" class:playing={playing && !busy}>
         {#key book.id}<BookCover {book} mini />{/key}
+        <div class="equalizer" aria-hidden="true"><span></span><span></span><span></span></div>
       </div>
       <div class="now-text">
         <b>{book.title}</b><span>{chapter}</span>
@@ -55,9 +57,13 @@
       <div class="transport">
         <button
           class="play"
+          class:busy
           disabled={busy}
           aria-label={playing ? 'Pause' : 'Play'}
-          onclick={ontoggle}><Icon name={playing ? 'pause' : 'play'} size={18} /></button
+          onclick={ontoggle}
+          >{#key playing}<span class="play-icon" in:reveal={{ y: 3, duration: 140 }}
+              ><Icon name={playing ? 'pause' : 'play'} size={18} /></span
+            >{/key}</button
         >
         <input
           type="range"
@@ -113,11 +119,54 @@
     min-width: 0;
   }
   .artwork {
+    position: relative;
     width: 48px;
     height: 48px;
     flex-shrink: 0;
     overflow: hidden;
     border-radius: 4px;
+  }
+  .equalizer {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    display: flex;
+    align-items: end;
+    gap: 2px;
+    height: 16px;
+    padding: 3px;
+    border-radius: 3px;
+    background: #0f1614bf;
+    opacity: 0;
+    transition: opacity var(--motion-fast) ease;
+  }
+  .playing .equalizer {
+    opacity: 1;
+  }
+  .equalizer span {
+    width: 2px;
+    height: 10px;
+    background: #fff;
+    transform-origin: bottom;
+    animation: equalize 800ms ease-in-out infinite alternate;
+    animation-play-state: paused;
+  }
+  .equalizer span:nth-child(2) {
+    animation-delay: -400ms;
+  }
+  .equalizer span:nth-child(3) {
+    animation-delay: -200ms;
+  }
+  .playing .equalizer span {
+    animation-play-state: running;
+  }
+  @keyframes equalize {
+    from {
+      transform: scaleY(0.3);
+    }
+    to {
+      transform: scaleY(1);
+    }
   }
   .now-text {
     min-width: 0;
@@ -170,6 +219,12 @@
     border-radius: 50%;
     background: var(--ink);
     color: var(--bg);
+  }
+  .play-icon {
+    display: flex;
+  }
+  .play.busy {
+    animation: activity-pulse 1.4s ease-in-out infinite;
   }
   .close {
     display: grid;

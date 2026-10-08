@@ -15,6 +15,9 @@
   --accent: #b5760f;
   --accent-ink: #fff;
   --serif: Georgia, 'Times New Roman', serif;
+  --motion-fast: 160ms;
+  --motion-normal: 260ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --gutter: clamp(16px, 4vw, 40px);
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
@@ -58,6 +61,15 @@ select {
 }
 button {
   cursor: pointer;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-ease);
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 button:disabled {
   cursor: default;
@@ -93,6 +105,34 @@ p {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+@keyframes library-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes mark-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.25);
+  }
+}
+@keyframes activity-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 @media (max-width: 640px) {
   :root {

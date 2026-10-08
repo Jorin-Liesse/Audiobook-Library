@@ -5,11 +5,18 @@
     message,
     actionLabel,
     onaction,
-  }: { title: string; message: string; actionLabel?: string; onaction?: () => void } = $props();
+    busy = false,
+  }: {
+    title: string;
+    message: string;
+    actionLabel?: string;
+    onaction?: () => void;
+    busy?: boolean;
+  } = $props();
 </script>
 
-<div class="empty">
-  <div class="symbol"><Icon name="headphones" size={30} /></div>
+<div class="empty" aria-busy={busy}>
+  <div class="symbol" class:busy><Icon name="headphones" size={30} /></div>
   <h2>{title}</h2>
   <p>{message}</p>
   {#if actionLabel && onaction}<button onclick={onaction}>{actionLabel}</button>{/if}
@@ -20,10 +27,14 @@
     max-width: 460px;
     margin: 12vh auto;
     text-align: center;
+    animation: library-enter 360ms var(--motion-ease) backwards;
   }
   .symbol {
     color: var(--muted);
     margin-bottom: 16px;
+  }
+  .symbol.busy {
+    animation: activity-pulse 1.4s ease-in-out infinite;
   }
   h2 {
     font-family: var(--serif);

@@ -5,17 +5,25 @@
   let {
     book,
     playing = false,
+    index = 0,
     onopen,
     onmark,
   }: {
     book: Book;
     playing?: boolean;
+    index?: number;
     onopen: (book: Book) => void;
     onmark: (id: string, kind: 'liked' | 'read') => void;
   } = $props();
 </script>
 
-<article class="card" data-book-id={book.id} class:read={book.read} class:playing>
+<article
+  class="card"
+  data-book-id={book.id}
+  class:read={book.read}
+  class:playing
+  style:--enter-delay={`${Math.min(index, 9) * 25}ms`}
+>
   <button class="open" onclick={() => onopen(book)} aria-label={`Play ${book.title}`}>
     <div class="cover-wrap"><BookCover {book} /></div>
     <span class="title">{book.title}</span>
@@ -46,6 +54,7 @@
   .card {
     position: relative;
     min-width: 0;
+    animation: library-enter 360ms var(--motion-ease) var(--enter-delay) backwards;
   }
   .open {
     display: block;
@@ -57,6 +66,12 @@
   }
   .cover-wrap {
     border-radius: 4px;
+    transition:
+      transform var(--motion-normal) var(--motion-ease),
+      opacity var(--motion-normal) ease;
+  }
+  .open:active .cover-wrap {
+    transform: scale(0.98);
   }
   .read .cover-wrap {
     opacity: 0.6;
@@ -69,6 +84,7 @@
     color: var(--accent);
   }
   .title {
+    transition: color var(--motion-fast) ease;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -105,8 +121,12 @@
     color: white;
     padding: 0;
     transition:
-      opacity 0.15s,
-      background 0.15s;
+      opacity var(--motion-fast) ease,
+      background-color var(--motion-fast) ease,
+      transform var(--motion-fast) var(--motion-ease);
+  }
+  .mark.on :global(svg) {
+    animation: mark-pop 320ms var(--motion-ease);
   }
   .check.on {
     background: var(--accent);

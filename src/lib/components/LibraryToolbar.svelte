@@ -1,5 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import { reveal } from '#lib/motion.ts';
   import type { LibraryFilter, LibraryView } from '#lib/types/library.ts';
   import type { SyncStatus } from '#lib/library/sync.ts';
   import DriveSync from './DriveSync.svelte';
@@ -80,7 +81,7 @@
   </div>
 {/snippet}
 
-<header class="toolbar">
+<header class="toolbar" class:busy>
   <div class="inner">
     <label class="search"
       ><Icon name="search" size={18} /><input
@@ -103,7 +104,13 @@
         onclick={() => (menuOpen = !menuOpen)}><Icon name="more" /></button
       >
       {#if menuOpen}
-        <div class="menu" id="library-options">
+        <div
+          class="menu"
+          id="library-options"
+          inert={!menuOpen}
+          in:reveal={{ y: -6, duration: 160 }}
+          out:reveal={{ y: -4, duration: 100 }}
+        >
           <div class="mobile">{@render layoutTabs()}</div>
           <div class="mobile filter-row">{@render filterSelect()}</div>
           {#if canRefresh}
@@ -170,6 +177,17 @@
     border-bottom: 1px solid var(--line);
     padding: calc(14px + var(--safe-area-top)) var(--gutter-right) 14px var(--gutter-left);
   }
+  .toolbar.busy::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    transform-origin: left;
+    animation: activity-pulse 1.4s ease-in-out infinite;
+  }
   .inner {
     max-width: 1320px;
     margin: 0 auto;
@@ -188,8 +206,10 @@
     flex: 1;
     min-width: 0;
     color: var(--muted);
+    transition: border-color var(--motion-fast) ease;
   }
   .search:focus-within {
+    border-color: var(--accent);
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
@@ -291,6 +311,9 @@
     border-radius: 6px;
     text-align: left;
     font-size: 0.9rem;
+    transition:
+      background-color var(--motion-fast) ease,
+      transform var(--motion-fast) var(--motion-ease);
   }
   .menu-item:hover:not(:disabled) {
     background: var(--bg);
