@@ -89,7 +89,7 @@
       const matchesFilter =
         filter === 'all' ||
         (filter === 'liked' && book.liked) ||
-        (filter === 'progress' && book.started && book.progress > 0 && !book.read) ||
+        (filter === 'progress' && book.started && book.progress > 1 && !book.read) ||
         (filter === 'new' && !book.started && !book.read) ||
         (filter === 'read' && book.read);
       return matchesSearch && matchesFilter;
