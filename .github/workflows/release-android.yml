@@ -1,21 +1,13 @@
 name: Release Android
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Existing release tag (for example, v0.1.0)'
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-release-${{ inputs.tag || github.ref_name }}
+  group: android-release
   cancel-in-progress: false
 
 jobs:
@@ -27,20 +19,17 @@ jobs:
       contents: write
     env:
       NDK_VERSION: '28.2.13676358'
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
     steps:
-      - name: Checkout release tag
+      - name: Checkout source
         uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '24'
 
-      - name: Validate release version and signing secrets
+      - name: Set release version and validate signing secrets
         env:
           ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -48,11 +37,9 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
+          import { appendFileSync, readFileSync } from 'node:fs';
           const { version } = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-          if (process.env.RELEASE_TAG !== `v${version}`) {
-            throw new Error('Release tag must match v + the version in src-tauri/tauri.conf.json.');
-          }
+          appendFileSync(process.env.GITHUB_ENV, `RELEASE_TAG=v${version}\n`);
           for (const name of ['ANDROID_KEY_BASE64', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD', 'ANDROID_KEYSTORE_PASSWORD']) {
             if (!process.env[name]) throw new Error(`Missing repository secret: ${name}`);
           }
@@ -168,7 +155,7 @@ jobs:
               flags+=(--prerelease)
             fi
             gh release create "$RELEASE_TAG" release-assets/* \
-              --verify-tag --title "Audiobook Library $RELEASE_TAG" \
+              --target "$GITHUB_SHA" --title "Audiobook Library $RELEASE_TAG" \
               --generate-notes "${flags[@]}"
           else
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
