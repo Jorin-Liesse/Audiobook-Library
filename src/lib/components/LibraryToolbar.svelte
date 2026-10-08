@@ -12,7 +12,6 @@
     filter = $bindable('all'),
     onchoose,
     onrefresh,
-    onrescan,
     canRefresh = false,
     busy = false,
     syncStatus,
@@ -25,7 +24,6 @@
     filter?: LibraryFilter;
     onchoose: () => void;
     onrefresh: () => void;
-    onrescan: () => void;
     canRefresh?: boolean;
     busy?: boolean;
     syncStatus: SyncStatus;
@@ -62,10 +60,7 @@
       <button
         class:active={view === item.value}
         aria-pressed={view === item.value}
-        onclick={() => {
-          view = item.value;
-          menuOpen = false;
-        }}>{item.label}</button
+        onclick={() => (view = item.value)}>{item.label}</button
       >
     {/each}
   </div>
@@ -96,7 +91,6 @@
     <div class="menu-wrap" bind:this={menuRoot}>
       <button
         class="menu-button"
-        class:filtered={filter !== 'all'}
         bind:this={menuButton}
         aria-expanded={menuOpen}
         aria-controls="library-options"
@@ -114,36 +108,15 @@
           <div class="mobile">{@render layoutTabs()}</div>
           <div class="mobile filter-row">{@render filterSelect()}</div>
           {#if canRefresh}
-            <button
-              class="menu-item"
-              disabled={busy}
-              onclick={() => {
-                menuOpen = false;
-                onrefresh();
-              }}
+            <button class="menu-item" disabled={busy} onclick={onrefresh}
               ><span>{busy ? 'Scanning library…' : 'Refresh library'}</span><Icon
                 name="refresh"
                 size={18}
               /></button
             >
-            <button
-              class="menu-item"
-              disabled={busy}
-              onclick={() => {
-                menuOpen = false;
-                onrescan();
-              }}
-            >
-              Rescan audio files
-            </button>
           {/if}
-          <button
-            class="menu-item"
-            disabled={busy}
-            onclick={() => {
-              menuOpen = false;
-              onchoose();
-            }}><span>Choose folder</span><Icon name="folder" size={18} /></button
+          <button class="menu-item" disabled={busy} onclick={onchoose}
+            ><span>Choose folder</span><Icon name="folder" size={18} /></button
           >
           <DriveSync status={syncStatus} {onconnect} {onsync} {ondisconnect} />
           <nav class="legal-links" aria-label="Legal information">
@@ -152,14 +125,14 @@
               href={resolve('/(legal)/privacy')}
               target="_blank"
               rel="noopener noreferrer"
-              onclick={() => (menuOpen = false)}>Privacy Policy</a
+              ><span>Privacy Policy</span><Icon name="shield" size={18} /></a
             >
             <a
               class="menu-item"
               href={resolve('/(legal)/term')}
               target="_blank"
               rel="noopener noreferrer"
-              onclick={() => (menuOpen = false)}>Terms of Service</a
+              ><span>Terms of Service</span><Icon name="file-text" size={18} /></a
             >
           </nav>
         </div>
@@ -210,8 +183,6 @@
   }
   .search:focus-within {
     border-color: var(--accent);
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
   }
   input {
     width: 100%;
@@ -353,17 +324,6 @@
     }
     .filter-row {
       padding: 8px 0;
-    }
-    .filtered::after {
-      content: '';
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: var(--accent);
-      border: 2px solid var(--surface);
     }
   }
 </style>

@@ -21,7 +21,10 @@
   {/if}
   {#if !status.connected}
     <button class="menu-item" disabled={status.busy} onclick={onconnect}
-      >{status.account ? 'Reconnect Google Drive' : 'Sign in with Google'}</button
+      ><span>{status.account ? 'Reconnect Google Drive' : 'Sign in with Google'}</span><Icon
+        name="sign-in"
+        size={18}
+      /></button
     >
   {:else}
     <button class="menu-item" class:syncing={status.busy} disabled={status.busy} onclick={onsync}
@@ -29,7 +32,9 @@
     >
   {/if}
   {#if status.account}
-    <button class="menu-item" disabled={status.busy} onclick={ondisconnect}>Sign out</button>
+    <button class="menu-item" disabled={status.busy} onclick={ondisconnect}
+      ><span>Sign out</span><Icon name="sign-out" size={18} /></button
+    >
   {/if}
   <p class="status" role="status">{status.message}</p>
 </section>

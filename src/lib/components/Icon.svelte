@@ -10,6 +10,10 @@
       | 'check'
       | 'folder'
       | 'refresh'
+      | 'sign-in'
+      | 'sign-out'
+      | 'shield'
+      | 'file-text'
       | 'play'
       | 'pause'
       | 'previous'
@@ -51,6 +55,15 @@
   {:else if name === 'refresh'}
     <path d="M20 3v5h-5M4 21v-5h5" />
     <path d="M4 12a8 8 0 0 1 13.66-5.66L20 8M20 12a8 8 0 0 1-13.66 5.66L4 16" />
+  {:else if name === 'sign-in'}
+    <path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5M3 12h12m-5-5 5 5-5 5" />
+  {:else if name === 'sign-out'}
+    <path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5m-1-9h12m-5-5 5 5-5 5" />
+  {:else if name === 'shield'}
+    <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z" />
+    <path d="m8 12 3 3 5-6" />
+  {:else if name === 'file-text'}
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8M8 17h6" />
   {:else if name === 'play'}
     <path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none" />
   {:else if name === 'pause'}

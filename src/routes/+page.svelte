@@ -54,7 +54,6 @@
     bind:filter={library.filter}
     onchoose={library.chooseFolder}
     onrefresh={() => library.refreshLibrary()}
-    onrescan={library.rescanLibrary}
     canRefresh={!!library.libraryName}
     busy={library.loading}
     syncStatus={library.syncStatus}
