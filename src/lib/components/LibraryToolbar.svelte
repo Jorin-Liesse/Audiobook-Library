@@ -182,7 +182,8 @@
     transition: border-color var(--motion-fast) ease;
   }
   .search:focus-within {
-    border-color: var(--accent);
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
   }
   input {
     width: 100%;
