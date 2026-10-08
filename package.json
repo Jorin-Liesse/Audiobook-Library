@@ -17,7 +17,8 @@
     "format": "prettier --write .",
     "tauri": "tauri",
     "test:android-audio": "node --experimental-vm-modules --test scripts/android-audio.test.mjs",
-    "test:drive-sync": "node --experimental-vm-modules --test scripts/drive-sync.test.mjs"
+    "test:drive-sync": "node --experimental-vm-modules --test scripts/drive-sync.test.mjs",
+    "test": "node --experimental-vm-modules --test scripts/*.test.mjs"
   },
   "license": "MIT",
   "dependencies": {

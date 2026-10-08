@@ -6,7 +6,7 @@
     status,
     onconnect,
     onsync,
-    ondisconnect
+    ondisconnect,
   }: {
     status: SyncStatus;
     onconnect: () => void;

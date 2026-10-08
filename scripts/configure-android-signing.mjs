@@ -1,13 +1,13 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const gradlePath = fileURLToPath(
-  new URL("../src-tauri/gen/android/app/build.gradle.kts", import.meta.url),
+  new URL('../src-tauri/gen/android/app/build.gradle.kts', import.meta.url),
 );
-const marker = "// Audiobook Library release signing";
+const marker = '// Audiobook Library release signing';
 
 try {
-  const gradle = readFileSync(gradlePath, "utf8");
+  const gradle = readFileSync(gradlePath, 'utf8');
   if (!gradle.includes(marker)) {
     // Read credentials at build time so generated source contains no secrets.
     writeFileSync(
@@ -33,7 +33,7 @@ android {
 `,
     );
   }
-  console.log("Configured Android release signing from environment variables.");
+  console.log('Configured Android release signing from environment variables.');
 } catch (error) {
   console.error(`Android signing configuration failed: ${error.message}`);
   process.exitCode = 1;

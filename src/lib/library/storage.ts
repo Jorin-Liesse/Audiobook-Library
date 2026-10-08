@@ -4,13 +4,13 @@ import type {
   LibraryFile,
   LinkedFile,
   NativeFile,
-} from "#lib/types/library.ts";
-import { buildLibrary } from "./files.ts";
-import { isNativeFile, nativeFileUrl } from "./native.ts";
+} from '#lib/types/library.ts';
+import { buildLibrary } from './files.ts';
+import { isNativeFile, nativeFileUrl } from './native.ts';
 
 export interface SavedLibrary {
   name: string;
-  files: { file: File | NativeFile; path: string }[];
+  files: { file: LibraryFile; path: string }[];
 }
 
 export interface LibraryIndex {
@@ -20,27 +20,25 @@ export interface LibraryIndex {
   books: Book[];
 }
 
-export function createLibraryIndex(
-  library: SavedLibrary,
-  books: Book[],
-  hasFolder: boolean,
-) {
-  const references = new Map<File, LinkedFile>();
+export function createLibraryIndex(library: SavedLibrary, books: Book[], hasFolder: boolean) {
+  const references = new Map<LibraryFile, LinkedFile>();
   library.files.forEach(({ file, path }) => {
-    if (isNativeFile(file)) return;
+    if (isNativeFile(file) || 'source' in file || 'storageKey' in file) return;
     references.set(file, {
-      source: hasFolder ? "folder" : "picker",
+      source: hasFolder ? 'folder' : 'picker',
       name: file.name,
       type: file.type,
       size: file.size,
       lastModified: file.lastModified,
+      fingerprint: (file as LibraryFile).fingerprint,
       webkitRelativePath: path,
     });
   });
   const reference = (file: LibraryFile): LinkedFile | NativeFile => {
     if (isNativeFile(file)) return { ...file };
+    if ('source' in file) return { ...file };
     if (!(file instanceof File) || !references.has(file))
-      throw new Error("An imported file is missing from the library");
+      throw new Error('An imported file is missing from the library');
     return references.get(file)!;
   };
   const catalog: LibraryIndex = {
@@ -68,12 +66,16 @@ export function createLibraryIndex(
   return catalog;
 }
 
+const parsedValues = new Map<string, { raw: string; value: unknown }>();
+
 export const store = {
   get<T>(key: string, fallback: T): T {
     try {
-      const value = localStorage.getItem("abl." + key);
+      const value = localStorage.getItem('abl.' + key);
       if (value === null) return fallback;
-      const parsed = JSON.parse(value);
+      const cached = parsedValues.get(key);
+      const parsed: unknown = cached?.raw === value ? cached.value : JSON.parse(value);
+      parsedValues.set(key, { raw: value, value: parsed });
       if (
         fallback !== null &&
         (parsed === null ||
@@ -81,16 +83,19 @@ export const store = {
           Array.isArray(parsed) !== Array.isArray(fallback))
       )
         return fallback;
-      return parsed;
+      return parsed as T;
     } catch {
       return fallback;
     }
   },
   set(key: string, value: unknown) {
     try {
-      localStorage.setItem("abl." + key, JSON.stringify(value));
+      const raw = JSON.stringify(value);
+      localStorage.setItem('abl.' + key, raw);
+      parsedValues.set(key, { raw, value });
+      return true;
     } catch {
-      // The library still works when browser storage is unavailable or full.
+      return false;
     }
   },
 };
@@ -112,10 +117,10 @@ export async function requestPersistentStorage(): Promise<boolean> {
 let database: Promise<IDBDatabase> | undefined;
 function openDatabase() {
   return (database ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("audiobook-library", 1);
+    const request = indexedDB.open('audiobook-library', 1);
     request.onupgradeneeded = () => {
-      request.result.createObjectStore("kv");
-      request.result.createObjectStore("covers");
+      request.result.createObjectStore('kv');
+      request.result.createObjectStore('covers');
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => {
@@ -146,17 +151,13 @@ async function transaction<T>(
 
 export const idb = {
   get<T>(name: string, key: string) {
-    return transaction<T>(name, "readonly", (store) => store.get(key));
+    return transaction<T>(name, 'readonly', (store) => store.get(key));
   },
   set(name: string, key: string, value: unknown) {
-    return transaction<IDBValidKey>(name, "readwrite", (store) =>
-      store.put(value, key),
-    );
+    return transaction<IDBValidKey>(name, 'readwrite', (store) => store.put(value, key));
   },
   del(name: string, key: string) {
-    return transaction<undefined>(name, "readwrite", (store) =>
-      store.delete(key),
-    );
+    return transaction<undefined>(name, 'readwrite', (store) => store.delete(key));
   },
 };
 
@@ -177,22 +178,22 @@ export async function saveLibrary(
       : null;
     const db = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction("kv", "readwrite");
-      const kv = tx.objectStore("kv");
+      const tx = db.transaction('kv', 'readwrite');
+      const kv = tx.objectStore('kv');
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
-      const previous = kv.get("library-index");
+      const previous = kv.get('library-index');
       previous.onsuccess = () => {
         try {
           const old = previous.result as LibraryIndex | undefined;
           for (const key of old?.fileKeys ?? []) kv.delete(key);
-          if (handle) kv.put(handle, "root");
-          else kv.delete("root");
+          if (handle) kv.put(handle, 'root');
+          else kv.delete('root');
           if (prepared) {
-            kv.put(prepared, "library-index");
-          } else kv.delete("library-index");
-          kv.delete("library");
+            kv.put(prepared, 'library-index');
+          } else kv.delete('library-index');
+          kv.delete('library');
         } catch (failure) {
           tx.abort();
           reject(failure);
@@ -208,14 +209,12 @@ export async function saveLibrary(
 
 export async function readSavedLibrary() {
   const [handle, catalog] = await Promise.all([
-    idb.get<LibraryDirectory>("kv", "root"),
-    idb.get<LibraryIndex>("kv", "library-index"),
+    idb.get<LibraryDirectory>('kv', 'root'),
+    idb.get<LibraryIndex>('kv', 'library-index'),
   ]);
   // Read the old whole-library copy only for a one-time migration.
   const supported = catalog?.version === 1 || catalog?.version === 2;
-  const legacy = supported
-    ? undefined
-    : await idb.get<SavedLibrary>("kv", "library");
+  const legacy = supported ? undefined : await idb.get<SavedLibrary>('kv', 'library');
   return { handle, catalog: supported ? catalog : undefined, legacy };
 }
 
@@ -223,10 +222,7 @@ let root: LibraryDirectory | null = null;
 let pickedFiles = new Map<string, File>();
 let directories = new Map<string, Promise<FileSystemDirectoryHandle>>();
 
-export function connectLibraryFiles(
-  handle: LibraryDirectory | null,
-  files: (File | NativeFile)[] = [],
-) {
+export function connectLibraryFiles(handle: LibraryDirectory | null, files: LibraryFile[] = []) {
   root = handle;
   pickedFiles = new Map(
     files
@@ -241,38 +237,31 @@ export async function loadLibraryFile(file: LibraryFile): Promise<File> {
   if (isNativeFile(file)) {
     const response = await fetch(await nativeFileUrl(file));
     if (!response.ok)
-      throw new Error(
-        "The original file is unavailable. Choose your folder again.",
-      );
+      throw new Error('The original file is unavailable. Choose your folder again.');
     const original = new File([await response.blob()], file.name, {
       type: file.type,
       lastModified: file.lastModified,
     });
-    Object.defineProperty(original, "webkitRelativePath", {
+    Object.defineProperty(original, 'webkitRelativePath', {
       value: file.webkitRelativePath,
     });
     return original;
   }
-  if ("source" in file) {
+  if ('source' in file) {
     const picked = pickedFiles.get(file.webkitRelativePath);
     if (picked) return picked;
-    if (file.source === "picker" || !root)
-      throw new Error(
-        "Choose your library folder again to access the original audio files.",
-      );
+    if (file.source === 'picker' || !root)
+      throw new Error('Choose your library folder again to access the original audio files.');
     // Resolve only this path, without enumerating the rest of the library.
-    const parts = file.webkitRelativePath.split("/");
-    if (
-      parts.shift() !== root.name ||
-      parts.some((part) => !part || part === ".." || part === ".")
-    )
-      throw new Error("The saved file path does not belong to this library.");
+    const parts = file.webkitRelativePath.split('/');
+    if (parts.shift() !== root.name || parts.some((part) => !part || part === '..' || part === '.'))
+      throw new Error('The saved file path does not belong to this library.');
     const name = parts.pop();
-    if (!name) throw new Error("The saved file path is invalid.");
+    if (!name) throw new Error('The saved file path is invalid.');
     let directory: FileSystemDirectoryHandle = root;
     let path = root.name;
     for (const part of parts) {
-      path += "/" + part;
+      path += '/' + part;
       let pending = directories.get(path);
       if (!pending) {
         pending = directory.getDirectoryHandle(part);
@@ -286,16 +275,15 @@ export async function loadLibraryFile(file: LibraryFile): Promise<File> {
       }
     }
     const original = await (await directory.getFileHandle(name)).getFile();
-    Object.defineProperty(original, "webkitRelativePath", {
+    Object.defineProperty(original, 'webkitRelativePath', {
       value: file.webkitRelativePath,
       configurable: true,
     });
     return original;
   }
-  const saved = await idb.get<File>("kv", file.storageKey);
-  if (!(saved instanceof File))
-    throw new Error("The saved audio file is unavailable");
-  Object.defineProperty(saved, "webkitRelativePath", {
+  const saved = await idb.get<File>('kv', file.storageKey);
+  if (!(saved instanceof File)) throw new Error('The saved audio file is unavailable');
+  Object.defineProperty(saved, 'webkitRelativePath', {
     value: file.webkitRelativePath,
     configurable: true,
   });
@@ -305,7 +293,7 @@ export async function loadLibraryFile(file: LibraryFile): Promise<File> {
 export function restoreLibraryFiles(library: SavedLibrary) {
   return library.files.map(({ file, path }) => {
     if (isNativeFile(file)) return { ...file, webkitRelativePath: path };
-    Object.defineProperty(file, "webkitRelativePath", {
+    Object.defineProperty(file, 'webkitRelativePath', {
       value: path,
       configurable: true,
     });
@@ -314,8 +302,7 @@ export function restoreLibraryFiles(library: SavedLibrary) {
 }
 
 export async function libraryAudioSource(file: LibraryFile) {
-  if (isNativeFile(file))
-    return { url: await nativeFileUrl(file), release: () => {} };
+  if (isNativeFile(file)) return { url: await nativeFileUrl(file), release: () => {} };
   const url = URL.createObjectURL(await loadLibraryFile(file));
   return { url, release: () => URL.revokeObjectURL(url) };
 }

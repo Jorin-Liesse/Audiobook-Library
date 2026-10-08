@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: '24'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -36,10 +36,16 @@ jobs:
 
       # No npm lockfile is currently committed, so npm ci cannot be used.
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       - name: Check frontend
         run: npm run check
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Test library and playback
+        run: npm test
 
       - name: Build Windows installers
         run: npm run tauri -- build --ci --bundles nsis,msi

@@ -6,7 +6,7 @@
     book,
     playing = false,
     onopen,
-    onmark
+    onmark,
   }: {
     book: Book;
     playing?: boolean;

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Book, BookProgress, Playback } from "#lib/types/library.ts";
-  import { isAndroidApp } from "#lib/library/androidAudio.ts";
-  import AndroidAudioPlayer from "./AndroidAudioPlayer.svelte";
-  import WebAudioPlayer from "./WebAudioPlayer.svelte";
+  import type { Book, BookProgress, Playback } from '#lib/types/library.ts';
+  import { isAndroidApp } from '#lib/library/androidAudio.ts';
+  import AndroidAudioPlayer from './AndroidAudioPlayer.svelte';
+  import WebAudioPlayer from './WebAudioPlayer.svelte';
 
   let props: {
     book: Book;

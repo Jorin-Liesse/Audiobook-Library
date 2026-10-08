@@ -19,7 +19,7 @@
           void loadCover(item);
         }
       },
-      { rootMargin: '300px' }
+      { rootMargin: '300px' },
     );
     observer.observe(element);
     return () => observer.disconnect();

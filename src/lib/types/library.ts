@@ -1,7 +1,8 @@
-export type LibraryView = "series" | "folders" | "az";
-export type LibraryFilter = "all" | "liked" | "progress" | "new" | "read";
+export type LibraryView = 'series' | 'folders' | 'az';
+export type LibraryFilter = 'all' | 'liked' | 'progress' | 'new' | 'read';
 
 export interface StoredFile {
+  fingerprint?: string;
   storageKey: string;
   name: string;
   type: string;
@@ -11,7 +12,8 @@ export interface StoredFile {
 }
 
 export interface LinkedFile {
-  source: "folder" | "picker";
+  fingerprint?: string;
+  source: 'folder' | 'picker';
   name: string;
   type: string;
   size: number;
@@ -19,10 +21,10 @@ export interface LinkedFile {
   webkitRelativePath: string;
 }
 
-export interface NativeFile extends Omit<LinkedFile, "source"> {
-  source: "native";
+export interface NativeFile extends Omit<LinkedFile, 'source'> {
+  source: 'native';
   location: string;
-  protocol?: "asset" | "library";
+  protocol?: 'asset' | 'library';
 }
 
 export interface NativeLibrary {
@@ -31,7 +33,7 @@ export interface NativeLibrary {
   files: NativeFile[];
 }
 
-export type LibraryFile = File | StoredFile | LinkedFile | NativeFile;
+export type LibraryFile = (File & { fingerprint?: string }) | StoredFile | LinkedFile | NativeFile;
 
 export interface Book {
   id: string;
@@ -52,7 +54,7 @@ export interface Book {
   cover: {
     color: string;
     accent: string;
-    motif: "orbit" | "mountain" | "arch" | "waves";
+    motif: 'orbit' | 'mountain' | 'arch' | 'waves';
   };
 }
 
@@ -71,6 +73,6 @@ export interface Playback {
 }
 
 export interface LibraryDirectory extends FileSystemDirectoryHandle {
-  queryPermission(options: { mode: "read" }): Promise<PermissionState>;
-  requestPermission(options: { mode: "read" }): Promise<PermissionState>;
+  queryPermission(options: { mode: 'read' }): Promise<PermissionState>;
+  requestPermission(options: { mode: 'read' }): Promise<PermissionState>;
 }

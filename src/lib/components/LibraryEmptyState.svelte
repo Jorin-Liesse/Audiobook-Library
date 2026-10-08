@@ -4,7 +4,7 @@
     title,
     message,
     actionLabel,
-    onaction
+    onaction,
   }: { title: string; message: string; actionLabel?: string; onaction?: () => void } = $props();
 </script>
 

@@ -16,7 +16,7 @@
     syncStatus,
     onconnect,
     onsync,
-    ondisconnect
+    ondisconnect,
   }: {
     query?: string;
     view?: LibraryView;
@@ -36,7 +36,7 @@
   const views: { value: LibraryView; label: string }[] = [
     { value: 'series', label: 'Series' },
     { value: 'folders', label: 'Folders' },
-    { value: 'az', label: 'A–Z' }
+    { value: 'az', label: 'A–Z' },
   ];
 </script>
 
@@ -111,7 +111,8 @@
               onclick={() => {
                 menuOpen = false;
                 onrefresh();
-              }}><span>{busy ? 'Scanning library…' : 'Refresh library'}</span><Icon
+              }}
+              ><span>{busy ? 'Scanning library…' : 'Refresh library'}</span><Icon
                 name="refresh"
                 size={18}
               /></button

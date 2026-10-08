@@ -1,22 +1,22 @@
 <script lang="ts">
-  import { resolve } from "$app/paths";
-  import type { Snippet } from "svelte";
+  import { resolve } from '$app/paths';
+  import type { Snippet } from 'svelte';
 
   let { children }: { children: Snippet } = $props();
 </script>
 
 <div class="legal">
   <header>
-    <a class="brand" href={resolve("/")}>Audiobook Library</a>
+    <a class="brand" href={resolve('/')}>Audiobook Library</a>
     <nav aria-label="Legal pages">
-      <a href={resolve("/(legal)/privacy")}>Privacy</a>
-      <a href={resolve("/(legal)/term")}>Terms</a>
+      <a href={resolve('/(legal)/privacy')}>Privacy</a>
+      <a href={resolve('/(legal)/term')}>Terms</a>
     </nav>
   </header>
   <main>
     <article>{@render children()}</article>
   </main>
-  <footer><a href={resolve("/")}>Return to your library</a></footer>
+  <footer><a href={resolve('/')}>Return to your library</a></footer>
 </div>
 
 <style>

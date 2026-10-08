@@ -3,11 +3,11 @@ name: Release Android
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag (for example, v0.1.0)"
+        description: 'Existing release tag (for example, v0.1.0)'
         required: true
         type: string
 
@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: write
     env:
-      NDK_VERSION: "28.2.13676358"
+      NDK_VERSION: '28.2.13676358'
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
     steps:
@@ -38,7 +38,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: '24'
 
       - name: Validate release version and signing secrets
         env:
@@ -62,7 +62,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: '21'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -86,13 +86,16 @@ jobs:
           shared-key: android-release
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       - name: Check frontend
         run: npm run check
 
-      - name: Test Android playback bridge
-        run: npm run test:android-audio
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Test library and playback
+        run: npm test
 
       - name: Initialize Android project
         if: ${{ hashFiles('src-tauri/gen/android/gradlew') == '' }}

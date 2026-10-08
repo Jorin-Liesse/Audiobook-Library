@@ -5,7 +5,7 @@
     name,
     books,
     subfolders = 0,
-    onopen
+    onopen,
   }: { name: string; books: Book[]; subfolders?: number; onopen: () => void } = $props();
 </script>
 

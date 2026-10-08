@@ -1,4 +1,4 @@
-declare module "jsmediatags/dist/jsmediatags.min.js" {
+declare module 'jsmediatags/dist/jsmediatags.min.js' {
   interface Tags {
     artist?: string;
     picture?: { data: number[]; format?: string };

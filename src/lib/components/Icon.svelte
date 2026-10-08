@@ -1,7 +1,7 @@
 <script lang="ts">
   let {
     name,
-    size = 20
+    size = 20,
   }: {
     name:
       | 'search'

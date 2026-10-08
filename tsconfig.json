@@ -12,5 +12,10 @@
     "moduleResolution": "bundler"
   },
   "include": ["src/**/*.js", "src/**/*.ts", "src/**/*.svelte", "*.js", "*.ts"],
-  "exclude": ["node_modules", "src/service-worker.js", "src/service-worker.ts", "src/service-worker"]
+  "exclude": [
+    "node_modules",
+    "src/service-worker.js",
+    "src/service-worker.ts",
+    "src/service-worker"
+  ]
 }

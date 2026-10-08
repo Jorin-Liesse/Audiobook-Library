@@ -7,13 +7,13 @@ export default {
   adapter: adapter({
     pages: 'build',
     assets: 'build',
-    fallback: native ? undefined : '404.html'
+    fallback: native ? undefined : '404.html',
   }),
   paths: {
-    base: native ? '' : '/Audiobook-Library'
+    base: native ? '' : '/Audiobook-Library',
   },
   serviceWorker: { register: !native },
   prerender: {
-    entries: ['*']
-  }
+    entries: ['*'],
+  },
 };
