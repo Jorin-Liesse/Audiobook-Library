@@ -1,0 +1,21 @@
+Copyright (c) 2026 Jorin Liesse. All rights reserved.
+
+This license applies to the contents of this repository except
+where a package or directory contains its own LICENSE file, in
+which case the terms of that LICENSE file govern the contents of
+that package or directory.
+
+No license is granted to use, copy, modify, or distribute the
+remaining contents of this repository without express written
+permission from the copyright holder.
+
+No part of the remaining contents of this repository may be used,
+in whole or in part, to train, fine-tune, evaluate, or otherwise
+develop any machine learning or artificial intelligence model,
+including but not limited to large language models, without
+express written permission from the copyright holder. 
+
+This license and all of its restrictions apply to the contents
+of this repository except where a package or directory contains
+its own LICENSE file. The contents of such a package or
+directory are governed by that LICENSE file instead.
