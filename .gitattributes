@@ -1,0 +1,103 @@
+# ============================================================
+# Text files
+# ============================================================
+
+* text=auto
+
+# Linux / Unix scripts -> LF
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.zsh       text eol=lf
+
+# CMake -> LF
+CMakeLists.txt text eol=lf
+*.cmake         text eol=lf
+*.cmake.in      text eol=lf
+
+# Docker / Linux configuration -> LF
+Dockerfile      text eol=lf
+*.dockerfile    text eol=lf
+docker-compose.yml  text eol=lf
+docker-compose.yaml text eol=lf
+
+# Makefiles -> LF
+Makefile        text eol=lf
+makefile        text eol=lf
+*.mk            text eol=lf
+
+# Unix configuration -> LF
+*.service       text eol=lf
+*.conf          text eol=lf
+*.ini           text eol=lf
+*.env            text eol=lf
+
+# Source code -> LF
+*.c             text eol=lf
+*.h             text eol=lf
+*.cc            text eol=lf
+*.cpp            text eol=lf
+*.cxx            text eol=lf
+*.hpp            text eol=lf
+*.cs             text eol=lf
+*.java           text eol=lf
+*.js             text eol=lf
+*.ts             text eol=lf
+*.jsx            text eol=lf
+*.tsx            text eol=lf
+*.py             text eol=lf
+*.rs             text eol=lf
+*.go             text eol=lf
+
+# Config / data -> LF
+*.json           text eol=lf
+*.yaml           text eol=lf
+*.yml            text eol=lf
+*.xml            text eol=lf
+*.toml           text eol=lf
+*.txt            text eol=lf
+*.md             text eol=lf
+
+# ============================================================
+# Windows-specific files
+# ============================================================
+
+# Windows batch files -> CRLF
+*.bat            text eol=crlf
+*.cmd            text eol=crlf
+
+# PowerShell normally works with LF, but CRLF is also native.
+# Use CRLF if these are primarily edited/executed on Windows.
+*.ps1            text eol=crlf
+*.psm1           text eol=crlf
+*.psd1           text eol=crlf
+
+# ============================================================
+# Binary files
+# ============================================================
+
+*.png            binary
+*.jpg            binary
+*.jpeg           binary
+*.gif            binary
+*.bmp            binary
+*.ico            binary
+*.webp           binary
+
+*.exe            binary
+*.dll            binary
+*.so             binary
+*.dylib          binary
+*.a              binary
+*.lib             binary
+
+*.zip             binary
+*.7z              binary
+*.tar             binary
+*.gz              binary
+*.rar             binary
+
+*.pdf             binary
+*.woff            binary
+*.woff2           binary
+*.ttf             binary
+*.otf             binary
