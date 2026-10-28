@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
+  import { openUrl } from '@tauri-apps/plugin-opener';
+  import { isNativeApp } from '#lib/library/native.ts';
   import { reveal } from '#lib/motion.ts';
   import type { LibraryFilter, LibraryView } from '#lib/types/library.ts';
   import type { SyncStatus } from '#lib/library/sync.ts';
@@ -39,6 +42,20 @@
     { value: 'folders', label: 'Folders' },
     { value: 'az', label: 'A–Z' },
   ];
+
+  async function openLegalPage(event: MouseEvent, page: 'privacy' | 'term') {
+    if (!isNativeApp()) return;
+    event.preventDefault();
+    menuOpen = false;
+
+    try {
+      // A Tauri webview cannot open bundled routes in a new browser tab.
+      await openUrl(`https://jorin-liesse.github.io/Audiobook-Library/${page}/`);
+    } catch {
+      // Keep the bundled pages available if no browser can be launched.
+      await goto(page === 'privacy' ? resolve('/(legal)/privacy') : resolve('/(legal)/term'));
+    }
+  }
 </script>
 
 <svelte:window
@@ -123,6 +140,7 @@
             <a
               class="menu-item"
               href={resolve('/(legal)/privacy')}
+              onclick={(event) => openLegalPage(event, 'privacy')}
               target="_blank"
               rel="noopener noreferrer"
               ><span>Privacy Policy</span><Icon name="shield" size={18} /></a
@@ -130,6 +148,7 @@
             <a
               class="menu-item"
               href={resolve('/(legal)/term')}
+              onclick={(event) => openLegalPage(event, 'term')}
               target="_blank"
               rel="noopener noreferrer"
               ><span>Terms of Service</span><Icon name="file-text" size={18} /></a
